@@ -7,6 +7,7 @@ import { ActivityService } from "./services/ActivityService"
 import { ThemeService } from "./services/ThemeService"
 import {
   APP_THEMES,
+  APP_VERSION,
   INITIAL_GREETINGS,
   type AppThemeConfig,
   type GreetingItem,
@@ -574,7 +575,7 @@ export function App() {
         }}
       >
         <text style={{ color: theme.textSecondary, fontSize: 11 }}>
-          v0.0.0 • Blackboard App
+          {`v${APP_VERSION} • Blackboard App`}
         </text>
         <text style={{ color: theme.textSecondary, fontSize: 11 }}>
           Powered by GPUIX & Effect v4 • Rust Retained Tree UI

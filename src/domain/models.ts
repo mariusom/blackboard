@@ -1,4 +1,7 @@
 import { Schema } from "effect"
+import pkg from "../../package.json"
+
+export const APP_VERSION: string = pkg.version
 
 declare const GreetingErrorBrand: unique symbol
 export class GreetingError extends Schema.TaggedError<
@@ -18,33 +21,43 @@ export class CounterError extends Schema.TaggedError<
   current: Schema.Finite,
 }) {}
 
-export interface GreetingItem {
-  readonly id: string
-  readonly language: string
-  readonly greeting: string
-  readonly subtitle: string
-  readonly flag: string
-  readonly accentColor: string
-}
+export const SemVer = Schema.Struct({
+  major: Schema.Finite,
+  minor: Schema.Finite,
+  patch: Schema.Finite,
+})
+export type SemVer = typeof SemVer.Type
 
-export interface TelemetryEvent {
-  readonly id: number
-  readonly timestamp: string
-  readonly action: string
-  readonly details: string
-  readonly level: "info" | "success" | "warn"
-}
+export const GreetingItem = Schema.Struct({
+  id: Schema.String,
+  language: Schema.String,
+  greeting: Schema.String,
+  subtitle: Schema.String,
+  flag: Schema.String,
+  accentColor: Schema.String,
+})
+export type GreetingItem = typeof GreetingItem.Type
 
-export interface AppThemeConfig {
-  readonly id: "charcoal" | "midnight" | "slate"
-  readonly name: string
-  readonly background: string
-  readonly cardBg: string
-  readonly cardBorder: string
-  readonly textPrimary: string
-  readonly textSecondary: string
-  readonly buttonBg: string
-}
+export const TelemetryEvent = Schema.Struct({
+  id: Schema.Finite,
+  timestamp: Schema.String,
+  action: Schema.String,
+  details: Schema.String,
+  level: Schema.Literals(["info", "success", "warn"]),
+})
+export type TelemetryEvent = typeof TelemetryEvent.Type
+
+export const AppThemeConfig = Schema.Struct({
+  id: Schema.Literals(["charcoal", "midnight", "slate"]),
+  name: Schema.String,
+  background: Schema.String,
+  cardBg: Schema.String,
+  cardBorder: Schema.String,
+  textPrimary: Schema.String,
+  textSecondary: Schema.String,
+  buttonBg: Schema.String,
+})
+export type AppThemeConfig = typeof AppThemeConfig.Type
 
 export const APP_THEMES: Record<AppThemeConfig["id"], AppThemeConfig> = {
   charcoal: {

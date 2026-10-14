@@ -1,6 +1,7 @@
 import { Console, Effect, Schema } from "effect"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
+import { SemVer } from "../src/domain/models"
 
 declare const BumpErrorBrand: unique symbol
 export class BumpError extends Schema.TaggedError<
@@ -11,12 +12,6 @@ export class BumpError extends Schema.TaggedError<
 }) {}
 
 export type ReleaseType = "patch" | "minor" | "major"
-
-interface SemVer {
-  readonly major: number
-  readonly minor: number
-  readonly patch: number
-}
 
 const parseSemVer = (versionStr: string): Effect.Effect<SemVer, BumpError> =>
   Effect.gen(function* () {
@@ -44,9 +39,11 @@ const bumpSemVer = (current: SemVer, type: ReleaseType): SemVer => {
 
 const formatSemVer = (v: SemVer): string => `${v.major}.${v.minor}.${v.patch}`
 
-export const bumpProjectVersion = (releaseType: ReleaseType = "patch") =>
+export const bumpProjectVersion = (
+  releaseType: ReleaseType = "patch",
+  rootDir: string = process.cwd()
+) =>
   Effect.gen(function* () {
-    const rootDir = process.cwd()
     const pkgPath = path.join(rootDir, "package.json")
     const packagerPath = path.join(rootDir, "packager.json")
 
@@ -80,10 +77,6 @@ export const bumpProjectVersion = (releaseType: ReleaseType = "patch") =>
       try: () => fs.writeFile(packagerPath, JSON.stringify(packagerJson, null, 2) + "\n", "utf-8"),
       catch: (err) => new BumpError({ message: `Failed to write packager.json: ${String(err)}` }),
     })
-
-    yield* Effect.logInfo(
-      `Bumped version from ${currentVersionStr} to ${nextVersionStr} (${releaseType})`
-    )
 
     return nextVersionStr
   })

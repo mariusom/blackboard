@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Ref } from "effect"
+import { Context, DateTime, Effect, Layer, Ref } from "effect"
 import type { TelemetryEvent } from "../domain/models"
 
 export interface ActivityServiceShape {
@@ -18,10 +18,17 @@ export class ActivityService extends Context.Service<
   static readonly layer = Layer.effect(
     ActivityService,
     Effect.gen(function* () {
+      const initNow = yield* DateTime.now
+      const initTimestamp = DateTime.formatLocal(initNow, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+
       const historyRef = yield* Ref.make<readonly TelemetryEvent[]>([
         {
           id: 1,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: initTimestamp,
           action: "App Initialized",
           details: "GPUIX runtime & Effect v4 services ready",
           level: "info",
@@ -35,9 +42,15 @@ export class ActivityService extends Context.Service<
         level: "info" | "success" | "warn" = "info"
       ) {
         const id = yield* Ref.updateAndGet(nextIdRef, (n) => n + 1)
+        const currentNow = yield* DateTime.now
+        const timestamp = DateTime.formatLocal(currentNow, {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
         const event: TelemetryEvent = {
           id,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp,
           action,
           details,
           level,

@@ -26,19 +26,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm (reads pnpm@12.11.2 from package.json#packageManager)
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js for pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install
+        run: pnpm install --frozen-lockfile
 
       - name: Verify TypeScript types
-        run: bun run typecheck
+        run: pnpm run typecheck
 
       - name: Verify Effect v4 language service diagnostics
-        run: bun run check:effect
+        run: pnpm run check:effect
 
       - name: Run unit tests
         run: bun test
