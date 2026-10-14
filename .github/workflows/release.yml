@@ -83,6 +83,9 @@ jobs:
             echo "No DMG found in bundle directory. Attempting fallback via hdiutil..."
             APP_PATH=$(find bundle -name "*.app" | head -n 1 || true)
             if [ -n "$APP_PATH" ]; then
+              echo "Ad-hoc signing ${APP_PATH} prior to hdiutil DMG creation..."
+              xattr -cr "$APP_PATH"
+              codesign --force --deep --sign - "$APP_PATH"
               DMG_FILE="bundle/Blackboard-${NEW_VERSION}.dmg"
               hdiutil create -volname "Blackboard" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_FILE"
               echo "Created DMG using hdiutil at ${DMG_FILE}"
@@ -91,6 +94,14 @@ jobs:
               exit 1
             fi
           fi
+          APP_PATH=$(find bundle -name "*.app" | head -n 1 || true)
+          if [ -n "$APP_PATH" ]; then
+            echo "Verifying .app bundle signature..."
+            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          fi
+          echo "Ad-hoc signing DMG artifact..."
+          xattr -cr "$DMG_FILE"
+          codesign --force --sign - "$DMG_FILE"
           echo "path=${DMG_FILE}" >> $GITHUB_OUTPUT
           ls -lh "${DMG_FILE}"
 

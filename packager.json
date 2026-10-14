@@ -10,6 +10,7 @@
   ],
   "binariesDir": "dist",
   "outDir": "bundle",
+  "beforeEachPackageCommand": "if [ \"$CARGO_PACKAGER_FORMAT\" = \"dmg\" ] && [ -d bundle/Blackboard.app ]; then xattr -cr bundle/Blackboard.app && codesign --force --deep --sign - bundle/Blackboard.app; fi",
   "icons": [
     "AppIcon.icns"
   ],

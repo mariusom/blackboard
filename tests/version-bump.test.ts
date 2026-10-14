@@ -15,6 +15,9 @@ describe("Effect v4 Version Bump Script", () => {
     expect(rootPkg.version).toMatch(semverRegex)
     expect(rootPackager.name).toBeDefined()
     expect(rootPackager.name).toBe("blackboard")
+    expect(rootPackager.beforeEachPackageCommand).toContain(
+      "codesign --force --deep --sign - bundle/Blackboard.app"
+    )
     expect(rootPackager.version).toBeDefined()
     expect(rootPackager.version).toMatch(semverRegex)
     expect(rootPkg.version).toBe(rootPackager.version)
