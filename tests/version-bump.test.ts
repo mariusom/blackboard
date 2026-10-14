@@ -13,6 +13,8 @@ describe("Effect v4 Version Bump Script", () => {
     const semverRegex = /^\d+\.\d+\.\d+$/
     expect(rootPkg.version).toBeDefined()
     expect(rootPkg.version).toMatch(semverRegex)
+    expect(rootPackager.name).toBeDefined()
+    expect(rootPackager.name).toBe("blackboard")
     expect(rootPackager.version).toBeDefined()
     expect(rootPackager.version).toMatch(semverRegex)
     expect(rootPkg.version).toBe(rootPackager.version)
