@@ -5,13 +5,16 @@ import { GreetingService } from "./services/GreetingService"
 import { CounterService } from "./services/CounterService"
 import { ActivityService } from "./services/ActivityService"
 import { ThemeService } from "./services/ThemeService"
+import { UpdateService } from "./services/UpdateService"
 import {
   APP_THEMES,
   APP_VERSION,
+  GITHUB_REPO,
   INITIAL_GREETINGS,
   type AppThemeConfig,
   type GreetingItem,
   type TelemetryEvent,
+  type UpdateInfo,
 } from "./domain/models"
 
 export function App() {
@@ -21,6 +24,15 @@ export function App() {
   const [count, setCount] = useState<number>(0)
   const [counterError, setCounterError] = useState<string | null>(null)
   const [history, setHistory] = useState<readonly TelemetryEvent[]>([])
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo>({
+    currentVersion: APP_VERSION,
+    latestVersion: APP_VERSION,
+    hasUpdate: false,
+    downloadUrl: null,
+    releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
+    status: "idle",
+    errorMessage: null,
+  })
   const allGreetings = INITIAL_GREETINGS
 
   const refreshState = useCallback(() => {
@@ -54,9 +66,103 @@ export function App() {
     })
   }, [])
 
+  const handleCheckUpdates = useCallback(() => {
+    setUpdateInfo((prev) => ({ ...prev, status: "checking", errorMessage: null }))
+    appRuntime.runPromise(
+      Effect.gen(function* () {
+        const updateSvc = yield* UpdateService
+        const activitySvc = yield* ActivityService
+        const result = yield* updateSvc.checkForUpdates.pipe(
+          Effect.map((info) => ({ info, error: null as string | null })),
+          Effect.catchTag("UpdateError", (err) =>
+            Effect.succeed({ info: null as UpdateInfo | null, error: err.message as string | null })
+          )
+        )
+        if (result.error) {
+          yield* activitySvc.record("Update Check", `Update check failed: ${result.error}`, "warn")
+        } else if (result.info && result.info.hasUpdate) {
+          yield* activitySvc.record("Update Check", `New update v${result.info.latestVersion} is available`, "success")
+        } else if (result.info) {
+          yield* activitySvc.record("Update Check", `App is up to date (v${result.info.currentVersion})`, "info")
+        }
+        const hist = yield* activitySvc.getHistory
+        const state = yield* updateSvc.getUpdateState
+        return { hist, state }
+      })
+    ).then(({ hist, state }) => {
+      setHistory(hist)
+      setUpdateInfo(state)
+    })
+  }, [])
+
+  const handleInstallUpdate = () => {
+    setUpdateInfo((prev) => ({ ...prev, status: "downloading", errorMessage: null }))
+    appRuntime.runPromise(
+      Effect.gen(function* () {
+        const updateSvc = yield* UpdateService
+        const activitySvc = yield* ActivityService
+        const result = yield* updateSvc.installUpdate.pipe(
+          Effect.map((info) => ({ info, error: null as string | null })),
+          Effect.catchTag("UpdateError", (err) =>
+            Effect.succeed({ info: null as UpdateInfo | null, error: err.message as string | null })
+          )
+        )
+        if (result.error) {
+          yield* activitySvc.record("Update Install", `Update installation failed: ${result.error}`, "warn")
+        } else if (result.info) {
+          yield* activitySvc.record("Update Install", `Update v${result.info.latestVersion} installed — restart ready`, "success")
+        }
+        const hist = yield* activitySvc.getHistory
+        const state = yield* updateSvc.getUpdateState
+        return { hist, state }
+      })
+    ).then(({ hist, state }) => {
+      setHistory(hist)
+      setUpdateInfo(state)
+    })
+  }
+
+  const handleRestartApp = () => {
+    appRuntime.runPromise(
+      Effect.gen(function* () {
+        const updateSvc = yield* UpdateService
+        const activitySvc = yield* ActivityService
+        yield* activitySvc.record("Update Restart", "Restarting app to finish update", "success")
+        yield* updateSvc.restartApp.pipe(
+          Effect.catchTag("UpdateError", (err) =>
+            activitySvc.record("Update Restart", `Restart failed: ${err.message}`, "warn")
+          )
+        )
+      })
+    )
+  }
+
+  const updateUi: {
+    label: string
+    highlighted: boolean
+    onClick: (() => void) | null
+  } = (() => {
+    switch (updateInfo.status) {
+      case "checking":
+        return { label: "Checking...", highlighted: false, onClick: null }
+      case "available":
+        return { label: `⬇ Update to v${updateInfo.latestVersion}`, highlighted: true, onClick: handleInstallUpdate }
+      case "downloading":
+      case "installing":
+        return { label: `Updating (${updateInfo.status})...`, highlighted: false, onClick: null }
+      case "ready-to-restart":
+        return { label: `↻ Restart to v${updateInfo.latestVersion}`, highlighted: true, onClick: handleRestartApp }
+      case "up-to-date":
+        return { label: "Up to date • Check", highlighted: false, onClick: handleCheckUpdates }
+      default:
+        return { label: "Check Updates", highlighted: false, onClick: handleCheckUpdates }
+    }
+  })()
+
   useEffect(() => {
     refreshState()
-  }, [refreshState])
+    handleCheckUpdates()
+  }, [refreshState, handleCheckUpdates])
 
   const handleNextGreeting = () => {
     appRuntime.runPromise(
@@ -268,8 +374,85 @@ export function App() {
               Theme: {theme.name}
             </text>
           </div>
+          <div
+            onClick={updateUi.onClick ?? (() => {})}
+            style={{
+              paddingTop: 6,
+              paddingBottom: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              borderRadius: 6,
+              backgroundColor: updateUi.highlighted ? "#059669" : theme.buttonBg,
+              cursor: updateUi.onClick ? "pointer" : "default",
+              opacity: updateUi.onClick ? 1 : 0.75,
+            }}
+          >
+            <text
+              style={{
+                color: updateUi.highlighted ? "#ffffff" : theme.textPrimary,
+                fontSize: 12,
+                fontWeight: "bold",
+              }}
+            >
+              {updateUi.label}
+            </text>
+          </div>
         </div>
       </div>
+
+      {/* Update Notification Bar */}
+      {(updateInfo.hasUpdate || updateInfo.status === "ready-to-restart") && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: theme.cardBg,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: "#059669",
+            padding: 10,
+            gap: 10,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <text style={{ color: "#10b981", fontSize: 12, fontWeight: "bold" }}>
+              {updateInfo.status === "ready-to-restart"
+                ? `Update v${updateInfo.latestVersion} installed`
+                : `Update v${updateInfo.latestVersion} available`}
+            </text>
+            <text style={{ color: theme.textSecondary, fontSize: 11 }}>
+              {updateInfo.status === "ready-to-restart"
+                ? "Restart the app to finish updating."
+                : `Release: ${updateInfo.releaseUrl}`}
+            </text>
+          </div>
+          <div
+            onClick={updateUi.onClick ?? (() => {})}
+            style={{
+              paddingTop: 6,
+              paddingBottom: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              borderRadius: 6,
+              backgroundColor: updateUi.highlighted ? "#059669" : theme.buttonBg,
+              cursor: updateUi.onClick ? "pointer" : "default",
+              opacity: updateUi.onClick ? 1 : 0.75,
+            }}
+          >
+            <text
+              style={{
+                color: updateUi.highlighted ? "#ffffff" : theme.textPrimary,
+                fontSize: 11,
+                fontWeight: "bold",
+              }}
+            >
+              {updateUi.label}
+            </text>
+          </div>
+        </div>
+      )}
 
       {/* Main Greeting Hero Card */}
       <div

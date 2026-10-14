@@ -3,6 +3,8 @@ import pkg from "../../package.json"
 
 export const APP_VERSION: string = pkg.version
 
+export const GITHUB_REPO = "mariusom/blackboard"
+
 declare const GreetingErrorBrand: unique symbol
 export class GreetingError extends Schema.TaggedError<
   GreetingError,
@@ -21,12 +23,97 @@ export class CounterError extends Schema.TaggedError<
   current: Schema.Finite,
 }) {}
 
+declare const UpdateErrorBrand: unique symbol
+export class UpdateError extends Schema.TaggedError<
+  UpdateError,
+  { readonly brand: typeof UpdateErrorBrand }
+>()("UpdateError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.String),
+}) {}
+
 export const SemVer = Schema.Struct({
   major: Schema.Finite,
   minor: Schema.Finite,
   patch: Schema.Finite,
 })
 export type SemVer = typeof SemVer.Type
+
+export const ReleaseAsset = Schema.Struct({
+  name: Schema.String,
+  browser_download_url: Schema.String,
+  size: Schema.Finite,
+})
+export type ReleaseAsset = typeof ReleaseAsset.Type
+
+export const GitHubRelease = Schema.Struct({
+  tag_name: Schema.String,
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+  html_url: Schema.String,
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  assets: Schema.Array(ReleaseAsset),
+})
+export type GitHubRelease = typeof GitHubRelease.Type
+
+export const UpdateStatus = Schema.Literals([
+  "idle",
+  "checking",
+  "available",
+  "up-to-date",
+  "downloading",
+  "installing",
+  "ready-to-restart",
+  "error",
+])
+export type UpdateStatus = typeof UpdateStatus.Type
+
+export const UpdateInfo = Schema.Struct({
+  currentVersion: Schema.String,
+  latestVersion: Schema.String,
+  hasUpdate: Schema.Boolean,
+  downloadUrl: Schema.NullOr(Schema.String),
+  releaseUrl: Schema.String,
+  status: UpdateStatus,
+  errorMessage: Schema.NullOr(Schema.String),
+})
+export type UpdateInfo = typeof UpdateInfo.Type
+
+export function parseSemVer(versionStr: string): SemVer | null {
+  const normalized = versionStr.trim().replace(/^[vV]/, "")
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(normalized)
+  if (!match) {
+    return null
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  }
+}
+
+export function isNewerVersion(currentVersion: string, candidateVersion: string): boolean {
+  const current = parseSemVer(currentVersion)
+  const candidate = parseSemVer(candidateVersion)
+  if (!current || !candidate) {
+    return false
+  }
+  if (candidate.major !== current.major) {
+    return candidate.major > current.major
+  }
+  if (candidate.minor !== current.minor) {
+    return candidate.minor > current.minor
+  }
+  return candidate.patch > current.patch
+}
+
+export function resolveTargetAppBundlePath(execPath: string): string {
+  const marker = ".app/Contents/MacOS/"
+  const markerIndex = execPath.indexOf(marker)
+  if (markerIndex !== -1 && !execPath.includes("/Volumes/")) {
+    return execPath.slice(0, markerIndex + ".app".length)
+  }
+  return "/Applications/Blackboard.app"
+}
 
 export const GreetingItem = Schema.Struct({
   id: Schema.String,

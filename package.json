@@ -9,7 +9,7 @@
   "packageManager": "pnpm@12.11.2",
   "scripts": {
     "dev": "bun --hot src/main.tsx",
-    "build": "bun build --compile src/main.tsx --outfile dist/blackboard",
+    "build": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
     "test": "bun test",

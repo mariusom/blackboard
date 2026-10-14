@@ -23,6 +23,17 @@ describe("Effect v4 Version Bump Script", () => {
     expect(rootPkg.version).toBe(rootPackager.version)
   })
 
+  it("builds via scripts/build.ts so the @gpuix/native .node addon is embedded", async () => {
+    const rootPkg = JSON.parse(await fs.readFile("package.json", "utf-8"))
+    expect(rootPkg.scripts.build).toBe("bun scripts/build.ts")
+
+    const buildScript = await fs.readFile("scripts/build.ts", "utf-8")
+    expect(buildScript).toContain("gpuix-native-embed")
+    expect(buildScript).toContain("@gpuix/native")
+
+    await fs.access(path.resolve("scripts/build.ts"))
+  })
+
   it("bumps patch, minor, and major versions in an isolated temporary directory", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "blackboard-bump-test-"))
     try {
