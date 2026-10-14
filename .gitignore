@@ -1,0 +1,9 @@
+node_modules/
+dist/
+bundle/
+*.dmg
+*.app
+AppIcon.icns
+AppIcon.iconset/
+icon_1024.png
+.DS_Store

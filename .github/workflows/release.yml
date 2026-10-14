@@ -1,0 +1,105 @@
+name: Release macOS DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'SemVer release bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Verify TypeScript types
+        run: bun run typecheck
+
+      - name: Verify Effect v4 language service diagnostics
+        run: bun run check:effect
+
+      - name: Run unit tests
+        run: bun test
+
+      - name: Bump SemVer version
+        id: bump
+        run: |
+          NEW_VERSION=$(bun run scripts/bump-version.ts ${{ inputs.release_type }})
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "Bumped version to ${NEW_VERSION}"
+
+      - name: Commit version bump and push git tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json packager.json
+          git commit -m "chore(release): bump version to v${NEW_VERSION}"
+          git tag "v${NEW_VERSION}"
+          git push origin HEAD --tags
+
+      - name: Build standalone Bun executable
+        run: bun run build
+
+      - name: Generate macOS AppIcon.icns
+        run: ./scripts/generate-icons.sh
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package macOS Application & DMG
+        run: cargo packager --release --config packager.json
+
+      - name: Ensure macOS DMG artifact exists (with hdiutil fallback)
+        id: dmg
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          DMG_FILE=$(find bundle -name "*.dmg" | head -n 1 || true)
+          if [ -z "$DMG_FILE" ]; then
+            echo "No DMG found in bundle directory. Attempting fallback via hdiutil..."
+            APP_PATH=$(find bundle -name "*.app" | head -n 1 || true)
+            if [ -n "$APP_PATH" ]; then
+              DMG_FILE="bundle/Blackboard-${NEW_VERSION}.dmg"
+              hdiutil create -volname "Blackboard" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_FILE"
+              echo "Created DMG using hdiutil at ${DMG_FILE}"
+            else
+              echo "Error: Neither .dmg nor .app found in bundle directory!" >&2
+              exit 1
+            fi
+          fi
+          echo "path=${DMG_FILE}" >> $GITHUB_OUTPUT
+          ls -lh "${DMG_FILE}"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+          DMG_PATH: ${{ steps.dmg.outputs.path }}
+        run: |
+          gh release create "v${NEW_VERSION}" "${DMG_PATH}" \
+            --title "Blackboard v${NEW_VERSION}" \
+            --generate-notes

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/crabnebula-dev/cargo-packager/main/crates/packager/schema.json",
+  "productName": "Blackboard",
+  "version": "0.0.0",
+  "identifier": "com.t3.blackboard",
+  "formats": [
+    "app",
+    "dmg"
+  ],
+  "binariesDir": "dist",
+  "outDir": "bundle",
+  "icons": [
+    "AppIcon.icns"
+  ],
+  "binaries": [
+    {
+      "path": "blackboard",
+      "main": true
+    }
+  ]
+}

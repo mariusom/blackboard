@@ -1,0 +1,26 @@
+{
+  "name": "blackboard",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/main.tsx",
+    "build": "bun build --compile src/main.tsx --outfile dist/blackboard",
+    "typecheck": "tsc --noEmit",
+    "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
+    "test": "bun test",
+    "bump": "bun scripts/bump-version.ts",
+    "postinstall": "effect-tsgo patch"
+  },
+  "dependencies": {
+    "@gpuix/native": "0.10.0",
+    "@gpuix/react": "0.10.0",
+    "effect": "^4.0.4",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "^0.53.0",
+    "@types/bun": "^1.4.3",
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}
