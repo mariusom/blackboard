@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect"
 import { APP_VERSION } from "../domain/models"
 import { UpdateService, type UpdateDependencies } from "../services/UpdateService"
-import { BoardPatch, CreateBoard, DeleteBoard, WorkspaceError } from "./model"
+import { BoardPatch, CreateBoard, DeleteBoard, WorkspaceError, summarizeBoard } from "./model"
 import { WorkspaceService } from "./WorkspaceService"
 import { makeUpdatePreview } from "./updatePreview"
 import { DeleteToken, UpsertTokens } from "./tokens"
@@ -75,6 +75,10 @@ export async function startWorkspaceServer(options: {
         if (url.pathname === "/client.js") return new Response(script, { headers: { "Content-Type": "text/javascript; charset=utf-8" } })
         if (url.pathname === "/style.css") return new Response(css, { headers: { "Content-Type": "text/css; charset=utf-8" } })
         if (url.pathname === "/api/state") return json(await getState())
+        if (url.pathname === "/api/boards") return execute(Effect.flatMap(WorkspaceService, workspace => workspace.get.pipe(Effect.map(state => {
+          const query = (url.searchParams.get("query") ?? "").trim().toLowerCase()
+          return state.boards.filter(b => !query || b.name.toLowerCase().includes(query) || b.html.toLowerCase().includes(query)).map(summarizeBoard)
+        }))))
         const boardMatch = /^\/api\/boards\/([^/]+)$/.exec(url.pathname)
         if (boardMatch) return execute(Effect.gen(function* () {
           const board = (yield* (yield* WorkspaceService).get).boards.find(b => b.id === decodeURIComponent(boardMatch[1]))

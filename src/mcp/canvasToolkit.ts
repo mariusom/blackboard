@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
-import { Board, BoardPatch, CreateBoard, Workspace, WorkspaceError } from "../workspace/model"
+import { Board, BoardPatch, BoardSummary, CreateBoard, Workspace, WorkspaceError } from "../workspace/model"
 import { DeleteToken, TokenCollection, UpsertTokens } from "../workspace/tokens"
 
 export const CanvasListBoards = Tool.make("canvas_list_boards", {
@@ -23,6 +23,10 @@ export const CanvasDeleteBoard = Tool.make("canvas_delete_board", {
   description: "Delete one canvas by ID when the user requests its removal. Read its revision first and pass expectedRevision so a canvas that changed since you read it is not deleted by mistake.",
   parameters: Schema.Struct({ id: Schema.String, expectedRevision: Schema.optionalKey(Schema.Int) }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
 })
+export const CanvasSearch = Tool.make("canvas_search", {
+  description: "Find canvases by name or HTML content. Returns matching canvases with their ids, positions, sizes and revisions, but not their full HTML. Read a match with canvas_get_board before editing it.",
+  parameters: Schema.Struct({ query: Schema.String.check(Schema.isMaxLength(200)) }), success: Schema.Array(BoardSummary), failure: WorkspaceError,
+})
 export const CanvasListTokens = Tool.make("canvas_list_tokens", {
   description: "Read the shared design-token library and its revision. Reuse these values in every canvas as CSS var(--token-name). Tokens include colors, spacing, typography and radii; linked canvases and HTML exports update together.",
   success: TokenCollection, failure: WorkspaceError,
@@ -35,4 +39,4 @@ export const CanvasDeleteToken = Tool.make("canvas_delete_token", {
   description: "Remove an unused design token. References in canvases or aliases must be replaced first; in-use tokens cannot be deleted.",
   parameters: DeleteToken, success: TokenCollection, failure: WorkspaceError,
 })
-export const CanvasToolkit = Toolkit.make(CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken)
+export const CanvasToolkit = Toolkit.make(CanvasListBoards, CanvasGetBoard, CanvasSearch, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken)

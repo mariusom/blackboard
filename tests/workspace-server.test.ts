@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { startWorkspaceServer } from "../src/workspace/server"
 import { CanvasConnection } from "../src/workspace/connection"
-import { Board } from "../src/workspace/model"
+import { Board, BoardSummary } from "../src/workspace/model"
 import { WorkspaceState } from "../src/workspace/protocol"
 import type { UpdateDependencies } from "../src/services/UpdateService"
 
@@ -84,6 +84,19 @@ it("keeps update download progress and restart actions functional through the ne
   }, { checkUpdate: async () => ({ version: "9.9.9", format: "app", downloadUrl: "https://example.com/update.app.tar.gz", downloadAndInstall: async () => { started.resolve(); await finish.promise } }), relaunch: async () => { restarts++ } })
 })
 
+it("lists and searches canvases by name and content without sending their HTML", () => fixture(async server => {
+  const post = (path: string, body: unknown) => fetch(server.origin + path, { method: "POST", headers: headers(server.token), body: JSON.stringify(body) })
+  await post("/api/boards", { name: "Landing page", html: "<h1>Welcome</h1>" })
+  await post("/api/boards", { name: "Mobile app", html: '<main class="hero">Pricing</main>' })
+  const list = async (query = "") => Schema.decodeUnknownSync(Schema.Array(BoardSummary))(await (await fetch(`${server.origin}/api/boards${query}`, { headers: headers(server.token) })).json())
+  const all = await list()
+  expect(all).toHaveLength(2)
+  expect(all.every(board => !("html" in board))).toBe(true)
+  expect((await list("?query=landing")).map(board => board.name)).toEqual(["Landing page"])
+  expect((await list("?query=pricing")).map(board => board.name)).toEqual(["Mobile app"])
+  expect(await list("?query=absent")).toEqual([])
+}))
+
 it("serves a single canvas by id so an agent read does not download every board", () => fixture(async server => {
   const post = (path: string, body: unknown) => fetch(server.origin + path, { method: "POST", headers: headers(server.token), body: JSON.stringify(body) })
   const created = Schema.decodeUnknownSync(Board)(await (await post("/api/boards", { name: "Only me", html: "<h1>One</h1>" })).json())
@@ -140,6 +153,7 @@ it("serves actual MCP tools over stdio and writes through to the open desktop wo
     child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
     const tools = await rpc("tools/list")
     expect(JSON.stringify(tools)).toContain("canvas_create_board")
+    expect(JSON.stringify(tools)).toContain("canvas_search")
     expect(JSON.stringify(tools)).toContain("canvas_upsert_tokens")
     const tokens = await rpc("tools/call", { name: "canvas_upsert_tokens", arguments: { tokens: [{ name: "test-brand", type: "color", value: "#123456" }], expectedRevision: 0 } })
     expect(JSON.stringify(tokens)).not.toContain('"isError":true')

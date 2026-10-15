@@ -2,13 +2,14 @@ import { Effect, Layer, Schema } from "effect"
 import { McpProtocol, McpServer } from "effect/ai"
 import { APP_VERSION } from "../domain/models"
 import { CanvasConnection } from "../workspace/connection"
-import { CanvasToolkit, CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken } from "./canvasToolkit"
+import { CanvasToolkit, CanvasListBoards, CanvasGetBoard, CanvasSearch, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken } from "./canvasToolkit"
 
 const CanvasHandlersLive = CanvasToolkit.toLayer(Effect.gen(function* () {
   const connection = yield* CanvasConnection
   return CanvasToolkit.of({
     [CanvasListBoards.name]: () => connection.list,
     [CanvasGetBoard.name]: ({ id }) => connection.board(id),
+    [CanvasSearch.name]: ({ query }) => connection.search(query),
     [CanvasCreateBoard.name]: input => connection.create(input),
     [CanvasUpdateBoard.name]: ({ id, patch }) => connection.update(id, patch),
     [CanvasDeleteBoard.name]: ({ id, expectedRevision }) => connection.remove(id, expectedRevision).pipe(Effect.as({ removedId: id })),

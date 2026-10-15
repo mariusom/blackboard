@@ -17,6 +17,23 @@ export const Board = Schema.Struct({
 })
 export interface Board extends Schema.Schema.Type<typeof Board> {}
 
+/** A board without its HTML, for listings and search results where the full
+ * source would dominate the payload. */
+export const BoardSummary = Schema.Struct({
+  id: Schema.String,
+  name: Name,
+  x: Coordinate,
+  y: Coordinate,
+  width: Dimension,
+  height: Dimension,
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+})
+export interface BoardSummary extends Schema.Schema.Type<typeof BoardSummary> {}
+export const summarizeBoard = (board: Board): BoardSummary => {
+  const { html: _html, ...summary } = board
+  return summary
+}
+
 export const CreateBoard = Schema.Struct({
   id: Schema.optionalKey(Schema.String),
   name: Name,
