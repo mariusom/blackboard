@@ -102,8 +102,8 @@ async function runRelease(scenario: Scenario = {}) {
         RELEASE_TEST_TARGET: scenario.target ?? ".app",
         RELEASE_TEST_KIND: scenario.kind ?? "network",
         RELEASE_TEST_FAILURES: String(scenario.failures ?? 2),
-        RELEASE_TEST_DMG_SPACE: scenario.requireDmgSpace ? "1" : "0",
-      },
+        RELEASE_TEST_DMG_SPACE: scenario.requireDmgSpace ? "1" : "0"
+      }
     })
     const { code, stdout, stderr } = await collect(child)
     const state: ToolState = JSON.parse(await fs.readFile(stateFile, "utf8"))
@@ -117,8 +117,8 @@ it("recovers from the Apple CloudKit connection loss seen after app stapling", a
   const result = await runRelease()
   expect(result.code, result.stderr).toBe(0)
   expect(result.state.attempts["validate:bundle/Blackboard.app"]).toBe(3)
-  expect(result.state.calls.filter((call) => call.join(" ") === "xcrun notarytool submit")).toHaveLength(2)
-  expect(result.state.calls.some((call) => call[0] === "minisign")).toBe(true)
+  expect(result.state.calls.filter(call => call.join(" ") === "xcrun notarytool submit")).toHaveLength(2)
+  expect(result.state.calls.some(call => call[0] === "minisign")).toBe(true)
 })
 
 it("also retries transient connection loss when stapling the DMG", async () => {
@@ -131,22 +131,22 @@ it("stops immediately for an invalid ticket even when stapler returns error 68",
   const result = await runRelease({ kind: "invalid" })
   expect(result.code).toBe(68)
   expect(result.state.attempts["validate:bundle/Blackboard.app"]).toBe(1)
-  expect(result.state.calls.some((call) => call[0] === "sleep")).toBe(false)
-  expect(result.state.calls.some((call) => call[0] === "minisign")).toBe(false)
+  expect(result.state.calls.some(call => call[0] === "sleep")).toBe(false)
+  expect(result.state.calls.some(call => call[0] === "minisign")).toBe(false)
 })
 
 it("stops after bounded retries when Apple remains unreachable", async () => {
   const result = await runRelease({ failures: 20 })
   expect(result.code).toBe(68)
   expect(result.state.attempts["validate:bundle/Blackboard.app"]).toBe(5)
-  expect(result.state.calls.filter((call) => call[0] === "sleep").map((call) => call[1])).toEqual(["5", "10", "20", "40"])
-  expect(result.state.calls.some((call) => call[0] === "minisign")).toBe(false)
+  expect(result.state.calls.filter(call => call[0] === "sleep").map(call => call[1])).toEqual(["5", "10", "20", "40"])
+  expect(result.state.calls.some(call => call[0] === "minisign")).toBe(false)
 })
 
 it("does not delay a release when Apple succeeds on the first attempt", async () => {
   const result = await runRelease({ failures: 0 })
   expect(result.code, result.stderr).toBe(0)
-  expect(result.state.calls.some((call) => call[0] === "sleep")).toBe(false)
+  expect(result.state.calls.some(call => call[0] === "sleep")).toBe(false)
 })
 
 it("reserves DMG filesystem space beyond the full uncompressed app payload", async () => {

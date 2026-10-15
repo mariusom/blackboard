@@ -17,25 +17,40 @@ export function createPreviewRenderer(makeFrame: () => PreviewFrame) {
   return {
     render(html: string, title: string) {
       if (disposed) return
-      current?.setTitle(title); pending?.setTitle(title)
+      current?.setTitle(title)
+      pending?.setTitle(title)
       if (html === requested) return
       requested = html
       pending?.remove()
-      const next = makeFrame(); pending = next
+      const next = makeFrame()
+      pending = next
       next.setTitle(title)
       next.onReady(() => {
-        if (disposed || pending !== next) { next.remove(); return }
+        if (disposed || pending !== next) {
+          next.remove()
+          return
+        }
         next.afterPaint(() => {
-          if (disposed || pending !== next) { next.remove(); return }
+          if (disposed || pending !== next) {
+            next.remove()
+            return
+          }
           next.show()
           current?.remove()
-          current = next; pending = undefined
+          current = next
+          pending = undefined
         })
       })
       next.setDocument(html)
       next.mount(true)
     },
-    dispose() { disposed = true; pending?.remove(); current?.remove(); pending = undefined; current = undefined },
+    dispose() {
+      disposed = true
+      pending?.remove()
+      current?.remove()
+      pending = undefined
+      current = undefined
+    }
   }
 }
 
@@ -46,14 +61,29 @@ export function createDOMPreview(surface: HTMLElement) {
     iframe.setAttribute("referrerpolicy", "no-referrer")
     iframe.setAttribute("tabindex", "-1")
     return {
-      setDocument: html => { iframe.srcdoc = html },
-      setTitle: title => { iframe.title = title },
-      onReady: ready => { iframe.addEventListener("load", ready, { once: true }) },
+      setDocument: html => {
+        iframe.srcdoc = html
+      },
+      setTitle: title => {
+        iframe.title = title
+      },
+      onReady: ready => {
+        iframe.addEventListener("load", ready, { once: true })
+      },
       // Keep replacements painted beneath the current frame until they are ready.
-      mount: covered => { iframe.style.zIndex = covered ? "0" : "1"; surface.append(iframe) },
-      afterPaint: painted => { requestAnimationFrame(() => requestAnimationFrame(painted)) },
-      show: () => { iframe.style.zIndex = "1" },
-      remove: () => { iframe.remove() },
+      mount: covered => {
+        iframe.style.zIndex = covered ? "0" : "1"
+        surface.append(iframe)
+      },
+      afterPaint: painted => {
+        requestAnimationFrame(() => requestAnimationFrame(painted))
+      },
+      show: () => {
+        iframe.style.zIndex = "1"
+      },
+      remove: () => {
+        iframe.remove()
+      }
     }
   })
 }

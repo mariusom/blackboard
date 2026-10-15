@@ -8,7 +8,7 @@ export const DesignToken = Schema.Struct({
   type: TokenType,
   value: Schema.String.check(Schema.isBetweenLength(1, 240)),
   category: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 60))),
-  description: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(240))),
+  description: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(240)))
 })
 export interface DesignToken extends Schema.Schema.Type<typeof DesignToken> {}
 export const TokenList = Schema.Array(DesignToken).check(Schema.isMaxLength(500))
@@ -19,8 +19,13 @@ export interface UpsertTokens extends Schema.Schema.Type<typeof UpsertTokens> {}
 export const DeleteToken = Schema.Struct({ name: TokenName, expectedRevision: Schema.optionalKey(TokenCollection.fields.revision) })
 
 export const TOKEN_LABELS: Record<TokenType, string> = {
-  color: "Colors", spacing: "Spacing", "font-size": "Font sizes", "font-family": "Font families",
-  "font-weight": "Font weights", radius: "Radii", number: "Numbers",
+  color: "Colors",
+  spacing: "Spacing",
+  "font-size": "Font sizes",
+  "font-family": "Font families",
+  "font-weight": "Font weights",
+  radius: "Radii",
+  number: "Numbers"
 }
 /** Categories organize tokens independently of their CSS value type. */
 export function groupTokens(tokens: readonly DesignToken[], query = ""): readonly { label: string; tokens: readonly DesignToken[] }[] {
@@ -30,7 +35,8 @@ export function groupTokens(tokens: readonly DesignToken[], query = ""): readonl
     const label = token.category?.trim() || TOKEN_LABELS[token.type]
     if (filter && !`${token.name} ${token.value} ${token.description ?? ""} ${label}`.toLowerCase().includes(filter)) continue
     const group = groups.get(label) ?? []
-    group.push(token); groups.set(label, group)
+    group.push(token)
+    groups.set(label, group)
   }
   return [...groups].filter(([, tokens]) => tokens.length).map(([label, tokens]) => ({ label, tokens }))
 }
@@ -51,12 +57,14 @@ export const DEFAULT_TOKENS: readonly DesignToken[] = [
   { name: "space-sm", type: "spacing", value: "8px" },
   { name: "space-md", type: "spacing", value: "16px" },
   { name: "space-lg", type: "spacing", value: "24px" },
-  { name: "radius-sm", type: "radius", value: "4px" },
+  { name: "radius-sm", type: "radius", value: "4px" }
 ]
 
 export const tokenVariable = (name: string) => `var(--${name})`
 const aliasName = (value: string) => /^var\(\s*--([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\s*\)$/.exec(value.trim())?.[1]
-export const tokenReferences = (source: string): readonly string[] => [...new Set(Array.from(source.matchAll(/var\(\s*--([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\s*(?=[,)])/g), match => match[1]))]
+export const tokenReferences = (source: string): readonly string[] => [
+  ...new Set(Array.from(source.matchAll(/var\(\s*--([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\s*(?=[,)])/g), match => match[1]))
+]
 const lengthTypes = new Set<TokenType>(["spacing", "radius", "font-size"])
 const compatible = (a: TokenType, b: TokenType) => a === b || (lengthTypes.has(a) && lengthTypes.has(b))
 function validLiteral(type: TokenType, value: string) {
@@ -77,9 +85,11 @@ export function tokenValidationError(tokens: readonly DesignToken[]): string | n
     if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(token.name)) return `Use a lowercase CSS name such as color-brand.`
     if (names.has(token.name)) return `Token '${token.name}' is repeated.`
     names.set(token.name, token)
-    if (!aliasName(token.value) && !validLiteral(token.type, token.value.trim())) return `Invalid ${token.type} value for '${token.name}'. Use a hex color, CSS length, font family/weight, number, or var(--token-name) of the same type.`
+    if (!aliasName(token.value) && !validLiteral(token.type, token.value.trim()))
+      return `Invalid ${token.type} value for '${token.name}'. Use a hex color, CSS length, font family/weight, number, or var(--token-name) of the same type.`
   }
-  const visited = new Set<string>(), visiting = new Set<string>()
+  const visited = new Set<string>(),
+    visiting = new Set<string>()
   const visit = (token: DesignToken): string | null => {
     if (visited.has(token.name)) return null
     if (visiting.has(token.name)) return `Token '${token.name}' contains a circular reference.`
@@ -89,19 +99,30 @@ export function tokenValidationError(tokens: readonly DesignToken[]): string | n
       const target = names.get(reference)
       if (!target) return `Token '${token.name}' refers to missing token '${reference}'.`
       if (!compatible(token.type, target.type)) return `Token '${token.name}' cannot reference a ${target.type} token.`
-      const error = visit(target); if (error) return error
+      const error = visit(target)
+      if (error) return error
     }
-    visiting.delete(token.name); visited.add(token.name); return null
+    visiting.delete(token.name)
+    visited.add(token.name)
+    return null
   }
-  for (const token of tokens) { const error = visit(token); if (error) return error }
+  for (const token of tokens) {
+    const error = visit(token)
+    if (error) return error
+  }
   return null
 }
 export function tokensCSS(tokens: readonly DesignToken[]): string {
-  const error = tokenValidationError(tokens); if (error) throw new Error(error)
+  const error = tokenValidationError(tokens)
+  if (error) throw new Error(error)
   return tokens.length ? `:root {\n${tokens.map(token => `  --${token.name}: ${token.value.trim()};`).join("\n")}\n}` : ""
 }
 /** A draft is local until saved. Invalid drafts never reach CSS rendering. */
-export function previewTokenDraft(tokens: readonly DesignToken[], token: DesignToken, creating: boolean): readonly DesignToken[] | undefined {
+export function previewTokenDraft(
+  tokens: readonly DesignToken[],
+  token: DesignToken,
+  creating: boolean
+): readonly DesignToken[] | undefined {
   if (creating && tokens.some(existing => existing.name === token.name)) return undefined
   const preview = [...tokens.filter(existing => existing.name !== token.name), token]
   return tokenValidationError(preview) ? undefined : preview

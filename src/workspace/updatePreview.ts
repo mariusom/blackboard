@@ -11,7 +11,12 @@ export const makeUpdatePreview = Effect.gen(function* () {
   const checkForUpdates = Effect.gen(function* () {
     yield* SubscriptionRef.set(state, { ...initial, status: "checking" as const })
     yield* Effect.sleep("900 millis")
-    return yield* SubscriptionRef.updateAndGet(state, s => ({ ...s, hasUpdate: true, latestVersion: nextVersion, status: "available" as const }))
+    return yield* SubscriptionRef.updateAndGet(state, s => ({
+      ...s,
+      hasUpdate: true,
+      latestVersion: nextVersion,
+      status: "available" as const
+    }))
   })
   const installUpdate = Effect.gen(function* () {
     const current = yield* SubscriptionRef.get(state)
@@ -24,10 +29,12 @@ export const makeUpdatePreview = Effect.gen(function* () {
   return {
     reset: SubscriptionRef.set(state, initial),
     service: UpdateService.of({
-      getUpdateState: SubscriptionRef.get(state), stateChanges: SubscriptionRef.changes(state),
-      checkForUpdates, installUpdate,
+      getUpdateState: SubscriptionRef.get(state),
+      stateChanges: SubscriptionRef.changes(state),
+      checkForUpdates,
+      installUpdate,
       restartApp: SubscriptionRef.update(state, s => ({ ...s, status: "restarting" as const })),
-      openDownloadPage: SubscriptionRef.update(state, s => ({ ...s, status: "manual-download" as const })),
-    }),
+      openDownloadPage: SubscriptionRef.update(state, s => ({ ...s, status: "manual-download" as const }))
+    })
   }
 })

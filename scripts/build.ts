@@ -13,16 +13,14 @@ const NATIVE_ADDON_CANDIDATES: Record<string, readonly string[]> = {
   "linux-x64": ["@gpuix/native-linux-x64-gnu", "@gpuix/native-linux-x64-musl"],
   "linux-arm64": ["@gpuix/native-linux-arm64-gnu", "@gpuix/native-linux-arm64-musl"],
   "win32-x64": ["@gpuix/native-win32-x64-msvc", "@gpuix/native-win32-x64-gnu"],
-  "win32-arm64": ["@gpuix/native-win32-arm64-msvc"],
+  "win32-arm64": ["@gpuix/native-win32-arm64-msvc"]
 }
 
 function resolveNativeAddonPath(): string {
   const platformKey = `${process.platform}-${process.arch}`
   const candidates = NATIVE_ADDON_CANDIDATES[platformKey]
   if (!candidates) {
-    throw new Error(
-      `Unsupported platform/arch for @gpuix/native embedded builds: ${platformKey}`,
-    )
+    throw new Error(`Unsupported platform/arch for @gpuix/native embedded builds: ${platformKey}`)
   }
 
   // Resolve from @gpuix/native's own module context so the optional peer
@@ -33,22 +31,28 @@ function resolveNativeAddonPath(): string {
     try {
       return nativeRequire.resolve(specifier)
     } catch (error) {
-      errors.push(
-        `  - ${specifier}: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      errors.push(`  - ${specifier}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   throw new Error(
     `Could not resolve the @gpuix/native .node addon for ${platformKey}. ` +
       `Tried:\n${errors.join("\n")}\n` +
-      `Ensure pnpm installed the matching optional dependency (fresh "pnpm install").`,
+      `Ensure pnpm installed the matching optional dependency (fresh "pnpm install").`
   )
 }
 
 fs.mkdirSync("dist", { recursive: true })
-execFileSync("/usr/bin/swiftc", ["native/Blackboard.swift", "-o", "dist/blackboard-webkit", "-O", "-framework", "AppKit", "-framework", "WebKit"], { stdio: "inherit" })
+execFileSync(
+  "/usr/bin/swiftc",
+  ["native/Blackboard.swift", "-o", "dist/blackboard-webkit", "-O", "-framework", "AppKit", "-framework", "WebKit"],
+  { stdio: "inherit" }
+)
 if (process.env.APPLE_SIGNING_IDENTITY) {
-  execFileSync("/usr/bin/codesign", ["--force", "--timestamp", "--options", "runtime", "--sign", process.env.APPLE_SIGNING_IDENTITY, "dist/blackboard-webkit"], { stdio: "inherit" })
+  execFileSync(
+    "/usr/bin/codesign",
+    ["--force", "--timestamp", "--options", "runtime", "--sign", process.env.APPLE_SIGNING_IDENTITY, "dist/blackboard-webkit"],
+    { stdio: "inherit" }
+  )
 }
 const webBuild = await Bun.build({ entrypoints: ["src/web/client.ts"], target: "browser", minify: true })
 if (!webBuild.success) throw new Error(webBuild.logs.join("\n"))
@@ -61,10 +65,11 @@ if (process.platform === "darwin" && process.env.APPLE_SIGNING_IDENTITY) {
   fs.mkdirSync("dist", { recursive: true })
   const signedAddonPath = `${process.cwd()}/dist/gpuix.node`
   fs.copyFileSync(addonPath, signedAddonPath)
-  execFileSync("/usr/bin/codesign", [
-    "--force", "--timestamp", "--options", "runtime",
-    "--sign", process.env.APPLE_SIGNING_IDENTITY, signedAddonPath,
-  ], { stdio: "inherit" })
+  execFileSync(
+    "/usr/bin/codesign",
+    ["--force", "--timestamp", "--options", "runtime", "--sign", process.env.APPLE_SIGNING_IDENTITY, signedAddonPath],
+    { stdio: "inherit" }
+  )
   addonPath = signedAddonPath
 }
 console.log(`[gpuix-native-embed] resolved native addon: ${addonPath}`)
@@ -80,19 +85,19 @@ const gpuixNativeEmbed: BunPlugin = {
     // module that statically `require`s the absolute addon path instead.
     build.onResolve({ filter: /^@gpuix\/native$/ }, () => ({
       path: "@gpuix/native",
-      namespace: "gpuix-native-embed",
+      namespace: "gpuix-native-embed"
     }))
     build.onLoad({ filter: /.*/, namespace: "gpuix-native-embed" }, () => ({
       contents: [
         `const nativeBinding = require(${JSON.stringify(addonPath)});`,
         `export const { AvailableUpdate, GpuixRenderer, TestGpuixRenderer, checkUpdate, hasTestGpuixRenderer } = nativeBinding;`,
         `export const __napiBindingTarget = "native";`,
-        `export default nativeBinding;`,
+        `export default nativeBinding;`
       ].join("\n"),
       loader: "js",
-      resolveDir: process.cwd(),
+      resolveDir: process.cwd()
     }))
-  },
+  }
 }
 
 const result = await Bun.build({
@@ -100,12 +105,12 @@ const result = await Bun.build({
   define: {
     BLACKBOARD_UPDATER_PUBLIC_KEY: JSON.stringify(process.env.UPDATER_PUBLIC_KEY ?? ""),
     BLACKBOARD_WEB_CLIENT: JSON.stringify(webScript),
-    BLACKBOARD_PACKAGED: "true",
+    BLACKBOARD_PACKAGED: "true"
   },
   compile: {
-    outfile: "dist/blackboard",
+    outfile: "dist/blackboard"
   },
-  plugins: [gpuixNativeEmbed],
+  plugins: [gpuixNativeEmbed]
 })
 
 if (!result.success) {

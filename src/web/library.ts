@@ -18,7 +18,7 @@ export const canvasRow = (board: Board, selectedId: string | null): CanvasRow =>
   icon: board.width < board.height ? "▯" : "▤",
   label: board.name,
   size: `${board.width} × ${board.height}`,
-  active: board.id === selectedId,
+  active: board.id === selectedId
 })
 
 export const emptyLibraryMessage = (query: string): string =>

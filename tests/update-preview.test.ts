@@ -20,4 +20,5 @@ it.effect("emulates checking, installation, restart-later, restart, and replay w
     expect((yield* preview.service.getUpdateState).status).toBe("restarting")
     yield* preview.reset
     expect((yield* preview.service.getUpdateState).status).toBe("idle")
-  }))
+  })
+)

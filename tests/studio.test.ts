@@ -10,7 +10,8 @@ it.effect("starts a new workspace empty with a reusable token library", () =>
     const workspace = yield* Effect.flatMap(WorkspaceService, workspace => workspace.get)
     expect(workspace.boards).toEqual([])
     expect(workspace.tokens.length).toBeGreaterThan(0)
-  }).pipe(Effect.provide(WorkspaceService.makeLayer())))
+  }).pipe(Effect.provide(WorkspaceService.makeLayer()))
+)
 
 it("previews token drafts without modifying saved values and rejects invalid alias graphs", () => {
   const brand: DesignToken = { name: "brand", type: "color", value: "#112233" }

@@ -39,9 +39,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify types, Effect diagnostics, and tests
+      - name: Verify lint, format, types, Effect diagnostics, and tests
         run: |
           pnpm run lint
+          pnpm run format:check
           pnpm run typecheck
           pnpm run check:effect
           pnpm run test

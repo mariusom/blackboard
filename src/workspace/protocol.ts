@@ -3,9 +3,11 @@ import { UpdateInfo } from "../domain/models"
 import { Board, Workspace } from "./model"
 
 export const WorkspaceState = Schema.Struct({
-  workspace: Workspace, update: UpdateInfo, version: Schema.String,
+  workspace: Workspace,
+  update: UpdateInfo,
+  version: Schema.String,
   agent: Schema.Struct({ command: Schema.String, args: Schema.Array(Schema.String) }),
-  updatePreview: Schema.Boolean,
+  updatePreview: Schema.Boolean
 })
 export interface WorkspaceState extends Schema.Schema.Type<typeof WorkspaceState> {}
 
@@ -15,9 +17,10 @@ export interface WorkspaceState extends Schema.Schema.Type<typeof WorkspaceState
 export const StreamedBoard = Schema.Struct({ ...Board.fields, html: Schema.NullOr(Schema.String) })
 export const StreamedWorkspaceState = Schema.Struct({
   workspace: Schema.Struct({ ...Workspace.fields, boards: Schema.Array(StreamedBoard) }),
-  update: UpdateInfo, version: Schema.String,
+  update: UpdateInfo,
+  version: Schema.String,
   agent: Schema.Struct({ command: Schema.String, args: Schema.Array(Schema.String) }),
-  updatePreview: Schema.Boolean,
+  updatePreview: Schema.Boolean
 })
 export interface StreamedWorkspaceState extends Schema.Schema.Type<typeof StreamedWorkspaceState> {}
 

@@ -38,25 +38,15 @@ describe("Effect v4 Version Bump Script", () => {
       const fixturePkg = { name: "test-blackboard", version: "0.0.0" }
       const fixturePackager = { name: "Blackboard", version: "0.0.0" }
 
-      await fs.writeFile(
-        path.join(tempDir, "package.json"),
-        `${JSON.stringify(fixturePkg, null, 2)}\n`
-      )
-      await fs.writeFile(
-        path.join(tempDir, "packager.json"),
-        `${JSON.stringify(fixturePackager, null, 2)}\n`
-      )
+      await fs.writeFile(path.join(tempDir, "package.json"), `${JSON.stringify(fixturePkg, null, 2)}\n`)
+      await fs.writeFile(path.join(tempDir, "packager.json"), `${JSON.stringify(fixturePackager, null, 2)}\n`)
 
       // 1. Patch bump: 0.0.0 -> 0.0.1
       const patchVersion = await Effect.runPromise(bumpProjectVersion("patch", tempDir))
       expect(patchVersion).toBe("0.0.1")
 
-      const pkgAfterPatch = JSON.parse(
-        await fs.readFile(path.join(tempDir, "package.json"), "utf-8")
-      )
-      const packagerAfterPatch = JSON.parse(
-        await fs.readFile(path.join(tempDir, "packager.json"), "utf-8")
-      )
+      const pkgAfterPatch = JSON.parse(await fs.readFile(path.join(tempDir, "package.json"), "utf-8"))
+      const packagerAfterPatch = JSON.parse(await fs.readFile(path.join(tempDir, "packager.json"), "utf-8"))
       expect(pkgAfterPatch.version).toBe("0.0.1")
       expect(packagerAfterPatch.version).toBe("0.0.1")
 
@@ -64,18 +54,14 @@ describe("Effect v4 Version Bump Script", () => {
       const minorVersion = await Effect.runPromise(bumpProjectVersion("minor", tempDir))
       expect(minorVersion).toBe("0.1.0")
 
-      const pkgAfterMinor = JSON.parse(
-        await fs.readFile(path.join(tempDir, "package.json"), "utf-8")
-      )
+      const pkgAfterMinor = JSON.parse(await fs.readFile(path.join(tempDir, "package.json"), "utf-8"))
       expect(pkgAfterMinor.version).toBe("0.1.0")
 
       // 3. Major bump: 0.1.0 -> 1.0.0
       const majorVersion = await Effect.runPromise(bumpProjectVersion("major", tempDir))
       expect(majorVersion).toBe("1.0.0")
 
-      const pkgAfterMajor = JSON.parse(
-        await fs.readFile(path.join(tempDir, "package.json"), "utf-8")
-      )
+      const pkgAfterMajor = JSON.parse(await fs.readFile(path.join(tempDir, "package.json"), "utf-8"))
       expect(pkgAfterMajor.version).toBe("1.0.0")
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true })
@@ -88,18 +74,16 @@ describe("Effect v4 Version Bump Script", () => {
       const fixturePkg = { name: "test-cli-blackboard", version: "1.2.3" }
       const fixturePackager = { name: "Blackboard", version: "1.2.3" }
 
-      await fs.writeFile(
-        path.join(tempDir, "package.json"),
-        `${JSON.stringify(fixturePkg, null, 2)}\n`
-      )
-      await fs.writeFile(
-        path.join(tempDir, "packager.json"),
-        `${JSON.stringify(fixturePackager, null, 2)}\n`
-      )
+      await fs.writeFile(path.join(tempDir, "package.json"), `${JSON.stringify(fixturePkg, null, 2)}\n`)
+      await fs.writeFile(path.join(tempDir, "packager.json"), `${JSON.stringify(fixturePackager, null, 2)}\n`)
 
       const scriptPath = path.resolve("scripts/bump-version.ts")
-      const { code: exitCode, stdout, stderr } = await run(process.env.BUN_BIN ?? "bun", [scriptPath, "patch"], {
-        cwd: tempDir,
+      const {
+        code: exitCode,
+        stdout,
+        stderr
+      } = await run(process.env.BUN_BIN ?? "bun", [scriptPath, "patch"], {
+        cwd: tempDir
       })
 
       expect(exitCode).toBe(0)

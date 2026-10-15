@@ -7,23 +7,18 @@ export const GITHUB_REPO = "mariusom/blackboard"
 
 // Replaced at compile time. Update trust must not come from the downloaded feed.
 declare const BLACKBOARD_UPDATER_PUBLIC_KEY: string
-export const UPDATER_PUBLIC_KEY = typeof BLACKBOARD_UPDATER_PUBLIC_KEY === "undefined"
-  ? ""
-  : BLACKBOARD_UPDATER_PUBLIC_KEY
+export const UPDATER_PUBLIC_KEY = typeof BLACKBOARD_UPDATER_PUBLIC_KEY === "undefined" ? "" : BLACKBOARD_UPDATER_PUBLIC_KEY
 
 declare const UpdateErrorBrand: unique symbol
-export class UpdateError extends Schema.TaggedError<
-  UpdateError,
-  { readonly brand: typeof UpdateErrorBrand }
->()("UpdateError", {
+export class UpdateError extends Schema.TaggedError<UpdateError, { readonly brand: typeof UpdateErrorBrand }>()("UpdateError", {
   message: Schema.String,
-  cause: Schema.optional(Schema.String),
+  cause: Schema.optional(Schema.String)
 }) {}
 
 export const SemVer = Schema.Struct({
   major: Schema.Finite,
   minor: Schema.Finite,
-  patch: Schema.Finite,
+  patch: Schema.Finite
 })
 export type SemVer = typeof SemVer.Type
 
@@ -37,7 +32,7 @@ export const UpdateStatus = Schema.Literals([
   "installing",
   "ready-to-restart",
   "restarting",
-  "error",
+  "error"
 ])
 export type UpdateStatus = typeof UpdateStatus.Type
 
@@ -50,7 +45,7 @@ export const UpdateInfo = Schema.Struct({
   status: UpdateStatus,
   errorMessage: Schema.NullOr(Schema.String),
   canInstallAutomatically: Schema.Boolean,
-  installHint: Schema.NullOr(Schema.String),
+  installHint: Schema.NullOr(Schema.String)
 })
 export type UpdateInfo = typeof UpdateInfo.Type
 
@@ -63,7 +58,7 @@ export const INITIAL_UPDATE_INFO: UpdateInfo = {
   status: "idle",
   errorMessage: null,
   canInstallAutomatically: false,
-  installHint: null,
+  installHint: null
 }
 
 export function parseSemVer(versionStr: string): SemVer | null {
@@ -75,7 +70,7 @@ export function parseSemVer(versionStr: string): SemVer | null {
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
-    patch: Number(match[3]),
+    patch: Number(match[3])
   }
 }
 

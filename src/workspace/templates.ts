@@ -11,11 +11,21 @@ export const LEGACY_STUDIO_HTML = `<style>
 <div class="foot"><span><i class="dot"></i> OPEN FOR COLLABORATIONS</span><span>DESIGNED WITH INTENTION</span></div>`
 
 const replacements: Readonly<Record<string, string>> = {
-  "#f6f4ef": "color-surface", "#22261f": "color-ink", "#6c7067": "color-muted", "#303d2b": "color-brand",
-  "#e3e7d8": "color-art", "#899673": "color-leaf", "#536946": "color-leaf-dark",
+  "#f6f4ef": "color-surface",
+  "#22261f": "color-ink",
+  "#6c7067": "color-muted",
+  "#303d2b": "color-brand",
+  "#e3e7d8": "color-art",
+  "#899673": "color-leaf",
+  "#536946": "color-leaf-dark"
 }
-export const STUDIO_HTML = LEGACY_STUDIO_HTML.replace(/#[a-f0-9]{6}/g, value => replacements[value] ? `var(--${replacements[value]},${value})` : value)
-  .replace("font-family:-apple-system,BlinkMacSystemFont,sans-serif", "font-family:var(--font-body,-apple-system,BlinkMacSystemFont,sans-serif)")
+export const STUDIO_HTML = LEGACY_STUDIO_HTML.replace(/#[a-f0-9]{6}/g, value =>
+  replacements[value] ? `var(--${replacements[value]},${value})` : value
+)
+  .replace(
+    "font-family:-apple-system,BlinkMacSystemFont,sans-serif",
+    "font-family:var(--font-body,-apple-system,BlinkMacSystemFont,sans-serif)"
+  )
   .replace("font-family:Georgia,serif", "font-family:var(--font-display,Georgia,serif)")
   .replace("font-size:61px", "font-size:var(--size-display,61px)")
   .replace("font-size:48px", "font-size:var(--size-display-mobile,48px)")
@@ -25,10 +35,14 @@ export const STUDIO_HTML = LEGACY_STUDIO_HTML.replace(/#[a-f0-9]{6}/g, value => 
   .replace("color:white", "color:var(--color-on-brand,white)")
 
 export const INITIAL_WORKSPACE: Workspace = {
-  version: 2, name: "Untitled workspace", tokens: DEFAULT_TOKENS, tokensRevision: 0, boards: [
+  version: 2,
+  name: "Untitled workspace",
+  tokens: DEFAULT_TOKENS,
+  tokensRevision: 0,
+  boards: [
     { id: "desktop", name: "Forma · Desktop", x: 0, y: 0, width: 760, height: 560, html: STUDIO_HTML, revision: 0 },
-    { id: "mobile", name: "Forma · Mobile", x: 840, y: 0, width: 340, height: 740, html: STUDIO_HTML, revision: 0 },
-  ],
+    { id: "mobile", name: "Forma · Mobile", x: 840, y: 0, width: 340, height: 740, html: STUDIO_HTML, revision: 0 }
+  ]
 }
 
 export const EMPTY_WORKSPACE: Workspace = { version: 2, name: "Untitled workspace", tokens: DEFAULT_TOKENS, tokensRevision: 0, boards: [] }

@@ -25,16 +25,10 @@ describe("Update domain helpers", () => {
   })
 
   it("resolveTargetAppBundlePath only derives the bundle from non-mounted .app exec paths", () => {
-    expect(
-      resolveTargetAppBundlePath("/Applications/Blackboard.app/Contents/MacOS/blackboard"),
-    ).toBe("/Applications/Blackboard.app")
-    expect(
-      resolveTargetAppBundlePath(
-        "/Volumes/Blackboard 9.9.9/Blackboard.app/Contents/MacOS/blackboard",
-      ),
-    ).toBe("/Applications/Blackboard.app")
-    expect(resolveTargetAppBundlePath("/home/user/.t3/projects/blackboard/dist/blackboard")).toBe(
-      "/Applications/Blackboard.app",
+    expect(resolveTargetAppBundlePath("/Applications/Blackboard.app/Contents/MacOS/blackboard")).toBe("/Applications/Blackboard.app")
+    expect(resolveTargetAppBundlePath("/Volumes/Blackboard 9.9.9/Blackboard.app/Contents/MacOS/blackboard")).toBe(
+      "/Applications/Blackboard.app"
     )
+    expect(resolveTargetAppBundlePath("/home/user/.t3/projects/blackboard/dist/blackboard")).toBe("/Applications/Blackboard.app")
   })
 })

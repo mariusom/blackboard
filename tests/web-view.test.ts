@@ -5,7 +5,17 @@ import { INITIAL_UPDATE_INFO } from "../src/domain/models"
 import { canvasRow, emptyLibraryMessage, visibleCanvases } from "../src/web/library"
 import { describeUpdate } from "../src/web/updateView"
 
-const board = (over: Partial<Board> = {}): Board => ({ id: "a", name: "Landing page", x: 0, y: 0, width: 760, height: 560, html: "<h1>Hi</h1>", revision: 0, ...over })
+const board = (over: Partial<Board> = {}): Board => ({
+  id: "a",
+  name: "Landing page",
+  x: 0,
+  y: 0,
+  width: 760,
+  height: 560,
+  html: "<h1>Hi</h1>",
+  revision: 0,
+  ...over
+})
 const info = (over: Partial<UpdateInfo> = {}): UpdateInfo => ({ ...INITIAL_UPDATE_INFO, ...over })
 
 it("filters canvases by name case-insensitively and trims the query", () => {
@@ -18,7 +28,12 @@ it("filters canvases by name case-insensitively and trims the query", () => {
 
 it("describes a library row's icon, size, label, and selection", () => {
   expect(canvasRow(board({ width: 800, height: 600 }), "a")).toEqual({ icon: "▤", label: "Landing page", size: "800 × 600", active: true })
-  expect(canvasRow(board({ width: 390, height: 844 }), null)).toEqual({ icon: "▯", label: "Landing page", size: "390 × 844", active: false })
+  expect(canvasRow(board({ width: 390, height: 844 }), null)).toEqual({
+    icon: "▯",
+    label: "Landing page",
+    size: "390 × 844",
+    active: false
+  })
   expect(emptyLibraryMessage("x")).toBe("No matching canvases.")
   expect(emptyLibraryMessage("  ")).toContain("will appear here")
 })

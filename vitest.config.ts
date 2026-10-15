@@ -13,10 +13,10 @@ const textAssets: Plugin = {
     if (!id.endsWith(".ts") || !code.includes('with { type: "text" }')) return null
     const rewritten = code.replace(
       /import\s+(\w+)\s+from\s+"([^"]+\.(?:html|css))"[ \t]*with[ \t]*\{[ \t]*type:[ \t]*"text"[ \t]*\}/g,
-      'import $1 from "$2?raw"',
+      'import $1 from "$2?raw"'
     )
     return rewritten === code ? null : { code: rewritten, map: null }
-  },
+  }
 }
 
 /**
@@ -28,6 +28,6 @@ export default defineConfig({
   plugins: [textAssets],
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
-  },
+    include: ["tests/**/*.test.ts"]
+  }
 })
