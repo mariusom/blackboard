@@ -18,6 +18,34 @@ codesign --force --timestamp --options runtime \
   --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
+stapler_with_retry() {
+  local action="$1" artifact="$2"
+  local attempt=1 max_attempts=5 delay=5 status output
+  output=$(mktemp "$RUNNER_TEMP/blackboard-stapler.XXXXXX")
+  while true; do
+    if xcrun stapler "$action" "$artifact" > "$output" 2>&1; then
+      cat "$output"
+      rm -f "$output"
+      return 0
+    else
+      status=$?
+    fi
+    cat "$output" >&2
+    # Error 68 also covers invalid tickets. Retry only explicit network failures,
+    # including CloudKit's NSURLErrorDomain -1005 seen on hosted macOS runners.
+    if [ "$attempt" -ge "$max_attempts" ] ||
+      ! LC_ALL=C grep -Eq 'NSURLErrorDomain Code=-(1001|1003|1004|1005|1006|1009)([^0-9]|$)' "$output"; then
+      rm -f "$output"
+      return "$status"
+    fi
+    printf 'Apple stapler %s hit a transient network error; retrying (%s/%s) in %ss.\n' \
+      "$action" "$((attempt + 1))" "$max_attempts" "$delay" >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+
 notarize() {
   local artifact="$1"
   local staple_target="${2:-$artifact}"
@@ -35,8 +63,8 @@ notarize() {
       --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
     return 1
   fi
-  xcrun stapler staple "$staple_target"
-  xcrun stapler validate "$staple_target"
+  stapler_with_retry staple "$staple_target"
+  stapler_with_retry validate "$staple_target"
 }
 
 # Staple the app itself so the updater archive also works with offline Gatekeeper.

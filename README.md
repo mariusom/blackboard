@@ -169,7 +169,9 @@ Each release signs the native addon and application with Developer ID, enables t
 hardened runtime with Bun's JIT permissions, submits the app to Apple, and staples
 its notarization ticket. It then creates, signs, notarizes, and staples the DMG.
 Signing or notarization failures stop the release. No ad-hoc distribution fallback
-is used. See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
+is used. Apple ticket stapling and validation retry explicit network failures up to
+five times with increasing delays; invalid tickets and exhausted retries still
+stop publication. See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
 Blackboard checks for updates on startup and every six hours. Click **Update** to
 download and install, then **Restart**. The DMG is for the initial installation;
