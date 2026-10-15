@@ -1,7 +1,7 @@
 import { createRequire } from "node:module"
 import * as fs from "node:fs"
 import { execFileSync } from "node:child_process"
-import { type BunPlugin } from "bun"
+import type { BunPlugin } from "bun"
 
 // Candidate platform packages for @gpuix/native's NAPI-RS addon, keyed by
 // `${process.platform}-${process.arch}`. Each package's `main` field points

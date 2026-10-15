@@ -41,6 +41,7 @@ jobs:
 
       - name: Verify types, Effect diagnostics, and tests
         run: |
+          pnpm run lint
           pnpm run typecheck
           pnpm run check:effect
           bun test

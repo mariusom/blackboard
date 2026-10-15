@@ -66,7 +66,7 @@ type HistoryEntry = { before: Board | null; after: Board | null; id: string; rev
 const undoStack: HistoryEntry[] = []
 const redoStack: HistoryEntry[] = []
 const selected = () => state?.workspace.boards.find(b => b.id === selectedId)
-const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c))
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c))
 function toast(message: string) {
   clearTimeout(toastTimer); element("toast").textContent = message; element("toast").hidden = false
   toastTimer = setTimeout(() => { element("toast").hidden = true }, 4000)
@@ -552,7 +552,7 @@ function renderUpdate() {
   const preview = state.updatePreview
   const view = describeUpdate(info, preview)
   element("updates-button").classList.toggle("available", info.hasUpdate)
-  element("updates-button").innerHTML = icon(icons.update) + `<span>${info.hasUpdate ? info.status === "ready-to-restart" ? "Restart to update" : "Update available" : info.status === "checking" ? "Checking for updates…" : info.status === "error" ? "Update check failed · Retry" : info.status === "up-to-date" ? "Blackboard is up to date" : "Check for updates"}</span>`
+  element("updates-button").innerHTML = `${icon(icons.update)}<span>${info.hasUpdate ? info.status === "ready-to-restart" ? "Restart to update" : "Update available" : info.status === "checking" ? "Checking for updates…" : info.status === "error" ? "Update check failed · Retry" : info.status === "up-to-date" ? "Blackboard is up to date" : "Check for updates"}</span>`
   element("updates-button").setAttribute("aria-label", info.hasUpdate ? `${info.status === "ready-to-restart" ? "Restart to update" : "Update available"} · Blackboard ${info.latestVersion}` : "App updates")
   element("updates-button").title = info.hasUpdate ? `Blackboard ${info.latestVersion} is available` : "App updates"
   element("update-title").textContent = view.title
@@ -564,8 +564,8 @@ function renderUpdate() {
     else if (info.hasUpdate && info.canInstallAutomatically && info.status !== "manual-download") buttons = `<button data-update="install" class="primary">${info.status === "error" ? "Try again" : "Download and install"}</button><button data-update="download" class="quiet">Download DMG</button>`
     else buttons = `<button data-update="${info.hasUpdate || info.status === "manual-download" ? "download" : "check"}" class="primary">${info.hasUpdate || info.status === "manual-download" ? "Download DMG" : "Check for updates"}</button>`
   }
-  const steps = info.hasUpdate ? `<div class="update-steps">${view.steps.map(step => `<div class="${step.state === "todo" ? "" : step.state}" ${step.state === "current" ? 'aria-current="step"' : ""}><span class="step-dot" aria-hidden="true">${escape(step.marker)}</span><span>${escape(step.label)}</span></div>`).join("")}</div>` : ""
-  element("update-body").innerHTML = `${preview ? '<div class="preview-notice">INTERACTIVE PREVIEW <span>No files are downloaded or installed.</span></div>' : ""}${steps}<div class="update-status" role="status">${escape(view.message)}</div>${working ? '<div class="update-progress" role="progressbar" aria-label="Update in progress"></div>' : ""}${info.installHint && !info.canInstallAutomatically ? `<p style="font-size:10px;margin:6px 0">${escape(info.installHint)}</p>` : ""}${info.errorMessage && info.status !== "error" ? `<p role="alert">${escape(info.errorMessage)}</p>` : ""}<div class="update-actions">${buttons}</div><div class="update-version">Current version ${escape(info.currentVersion)}</div>`
+  const steps = info.hasUpdate ? `<div class="update-steps">${view.steps.map(step => `<div class="${step.state === "todo" ? "" : step.state}" ${step.state === "current" ? 'aria-current="step"' : ""}><span class="step-dot" aria-hidden="true">${escapeHtml(step.marker)}</span><span>${escapeHtml(step.label)}</span></div>`).join("")}</div>` : ""
+  element("update-body").innerHTML = `${preview ? '<div class="preview-notice">INTERACTIVE PREVIEW <span>No files are downloaded or installed.</span></div>' : ""}${steps}<div class="update-status" role="status">${escapeHtml(view.message)}</div>${working ? '<div class="update-progress" role="progressbar" aria-label="Update in progress"></div>' : ""}${info.installHint && !info.canInstallAutomatically ? `<p style="font-size:10px;margin:6px 0">${escapeHtml(info.installHint)}</p>` : ""}${info.errorMessage && info.status !== "error" ? `<p role="alert">${escapeHtml(info.errorMessage)}</p>` : ""}<div class="update-actions">${buttons}</div><div class="update-version">Current version ${escapeHtml(info.currentVersion)}</div>`
   element("update-body").querySelectorAll<HTMLButtonElement>("button").forEach(button => {
     button.disabled = updateBusy
     button.addEventListener("click", () => {

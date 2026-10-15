@@ -11,6 +11,8 @@
     "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
     "test": "bun test",
     "mcp": "bun src/mcp-main.ts",
@@ -25,6 +27,7 @@
     "effect": "^4.0.4"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@effect/tsgo": "^0.53.0",
     "@types/bun": "^1.4.3",
     "typescript": "^7.0.2"

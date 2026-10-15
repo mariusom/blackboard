@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
 import { dirname } from "node:path"
-import { Context, Effect, Layer, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, Schema, Semaphore, type Stream, SubscriptionRef } from "effect"
 import { Board, BoardPatch, CreateBoard, SavedWorkspace, Workspace, WorkspaceError, type LegacyWorkspace } from "./model"
 import { EMPTY_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from "./templates"
 import { DEFAULT_TOKENS, DeleteToken, TokenList, UpsertTokens, tokenReferences, tokenValidationError, type TokenCollection } from "./tokens"

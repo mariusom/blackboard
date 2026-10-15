@@ -2,7 +2,7 @@ import { Config, Context, Effect, Layer, Schema } from "effect"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { Board, BoardPatch, BoardSummary, CreateBoard, Workspace, WorkspaceError } from "./model"
+import { Board, type BoardPatch, BoardSummary, type CreateBoard, Workspace, WorkspaceError } from "./model"
 import { TokenCollection, type UpsertTokens } from "./tokens"
 
 export const applicationDirectory = () => join(homedir(), "Library", "Application Support", "Blackboard")

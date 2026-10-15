@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { Context, Effect, Layer, Ref, Semaphore, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, Ref, Semaphore, type Stream, SubscriptionRef } from "effect"
 import type { AvailableUpdate, CheckUpdateOptions } from "@gpuix/native"
 import {
   APP_VERSION,

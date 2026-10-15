@@ -168,15 +168,16 @@ it("serves actual MCP tools over stdio and writes through to the open desktop wo
     let buffer = ""
     for await (const chunk of child.stdout) {
       buffer += new TextDecoder().decode(chunk)
-      let end: number
-      while ((end = buffer.indexOf("\n")) !== -1) {
+      let end = buffer.indexOf("\n")
+      while (end !== -1) {
         const packet = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1)
         if (typeof packet.id === "number") { const handler = waiting.get(packet.id); waiting.delete(packet.id); if (packet.error) handler?.reject(packet.error); else handler?.resolve(packet.result) }
+        end = buffer.indexOf("\n")
       }
     }
   })()
   const rpc = (method: string, params?: unknown) => new Promise<unknown>((resolve, reject) => {
-    const next = ++id; waiting.set(next, { resolve, reject }); child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: next, method, ...(params === undefined ? {} : { params }) }) + "\n")
+    const next = ++id; waiting.set(next, { resolve, reject }); child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: next, method, ...(params === undefined ? {} : { params }) })}\n`)
   })
   try {
     await rpc("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "blackboard-integration-test", version: "1" } })

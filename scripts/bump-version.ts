@@ -1,7 +1,7 @@
 import { Console, Effect, Schema } from "effect"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import { SemVer } from "../src/domain/models"
+import type { SemVer } from "../src/domain/models"
 
 declare const BumpErrorBrand: unique symbol
 export class BumpError extends Schema.TaggedError<
@@ -69,12 +69,12 @@ export const bumpProjectVersion = (
     packagerJson.version = nextVersionStr
 
     yield* Effect.tryPromise({
-      try: () => fs.writeFile(pkgPath, JSON.stringify(pkgJson, null, 2) + "\n", "utf-8"),
+      try: () => fs.writeFile(pkgPath, `${JSON.stringify(pkgJson, null, 2)}\n`, "utf-8"),
       catch: (err) => new BumpError({ message: `Failed to write package.json: ${String(err)}` }),
     })
 
     yield* Effect.tryPromise({
-      try: () => fs.writeFile(packagerPath, JSON.stringify(packagerJson, null, 2) + "\n", "utf-8"),
+      try: () => fs.writeFile(packagerPath, `${JSON.stringify(packagerJson, null, 2)}\n`, "utf-8"),
       catch: (err) => new BumpError({ message: `Failed to write packager.json: ${String(err)}` }),
     })
 

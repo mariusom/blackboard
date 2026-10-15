@@ -6,7 +6,7 @@ const get = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const node = document.getElementById(id); if (!node) throw new Error(`Missing token control: ${id}`)
   return node as T
 }
-const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c))
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c))
 const EXAMPLES: Record<TokenType, string> = { color: "#303d2b", spacing: "16px", "font-size": "16px", "font-family": "Georgia, serif", "font-weight": "500", radius: "8px", number: "1.5" }
 export function createTokenPanel(options: {
   readonly workspace: () => Workspace | undefined
@@ -99,7 +99,7 @@ export function createTokenPanel(options: {
         const button = document.createElement("button"); button.className = "token-row"; button.type = "button"
         button.classList.toggle("selected", token.name === draft?.name)
         button.setAttribute("aria-label", `${token.name}, ${token.value}`)
-        button.innerHTML = `<span class="token-swatch">${token.type === "color" ? "" : token.type.startsWith("font") ? "Aa" : "↔"}</span><span class="token-row-text"><strong>${escape(token.name)}</strong><span>${escape(token.value)}</span></span>`
+        button.innerHTML = `<span class="token-swatch">${token.type === "color" ? "" : token.type.startsWith("font") ? "Aa" : "↔"}</span><span class="token-row-text"><strong>${escapeHtml(token.name)}</strong><span>${escapeHtml(token.value)}</span></span>`
         if (token.type === "color") { const swatch = button.querySelector<HTMLElement>(".token-swatch"); if (swatch) swatch.style.backgroundColor = resolvedTokenValue(token, workspace.tokens) }
         button.addEventListener("click", () => { if (mayDiscard()) { load(token); showDetail(true); render(); value.focus() } })
         group.append(button)

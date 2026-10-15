@@ -39,11 +39,11 @@ describe("Effect v4 Version Bump Script", () => {
 
       await fs.writeFile(
         path.join(tempDir, "package.json"),
-        JSON.stringify(fixturePkg, null, 2) + "\n"
+        `${JSON.stringify(fixturePkg, null, 2)}\n`
       )
       await fs.writeFile(
         path.join(tempDir, "packager.json"),
-        JSON.stringify(fixturePackager, null, 2) + "\n"
+        `${JSON.stringify(fixturePackager, null, 2)}\n`
       )
 
       // 1. Patch bump: 0.0.0 -> 0.0.1
@@ -89,11 +89,11 @@ describe("Effect v4 Version Bump Script", () => {
 
       await fs.writeFile(
         path.join(tempDir, "package.json"),
-        JSON.stringify(fixturePkg, null, 2) + "\n"
+        `${JSON.stringify(fixturePkg, null, 2)}\n`
       )
       await fs.writeFile(
         path.join(tempDir, "packager.json"),
-        JSON.stringify(fixturePackager, null, 2) + "\n"
+        `${JSON.stringify(fixturePackager, null, 2)}\n`
       )
 
       const scriptPath = path.resolve("scripts/bump-version.ts")
