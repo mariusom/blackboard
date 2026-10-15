@@ -1,18 +1,16 @@
-import { expect, it } from "bun:test"
-import { Effect, ManagedRuntime } from "effect"
+import { expect, it } from "@effect/vitest"
+import { Effect } from "effect"
 import { buildAgentPrompt } from "../src/web/agentPrompt"
 import { WorkspaceService } from "../src/workspace/WorkspaceService"
 import { previewTokenDraft, type DesignToken } from "../src/workspace/tokens"
 import type { Board } from "../src/workspace/model"
 
-it("starts a new workspace empty with a reusable token library", async () => {
-  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer())
-  try {
-    const workspace = await runtime.runPromise(Effect.flatMap(WorkspaceService, workspace => workspace.get))
+it.effect("starts a new workspace empty with a reusable token library", () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.flatMap(WorkspaceService, workspace => workspace.get)
     expect(workspace.boards).toEqual([])
     expect(workspace.tokens.length).toBeGreaterThan(0)
-  } finally { await runtime.dispose() }
-})
+  }).pipe(Effect.provide(WorkspaceService.makeLayer())))
 
 it("previews token drafts without modifying saved values and rejects invalid alias graphs", () => {
   const brand: DesignToken = { name: "brand", type: "color", value: "#112233" }

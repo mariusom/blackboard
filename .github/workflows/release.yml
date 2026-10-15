@@ -72,7 +72,7 @@ jobs:
           pnpm run lint
           pnpm run typecheck
           pnpm run check:effect
-          bun test
+          pnpm run test
 
       - name: Bump SemVer version
         id: bump

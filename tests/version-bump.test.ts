@@ -1,9 +1,10 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect } from "@effect/vitest"
 import { Effect } from "effect"
 import { bumpProjectVersion } from "../scripts/bump-version"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
+import { run } from "./helpers/process"
 
 describe("Effect v4 Version Bump Script", () => {
   it("verifies root package.json and packager.json have valid semver without mutating them", async () => {
@@ -97,15 +98,9 @@ describe("Effect v4 Version Bump Script", () => {
       )
 
       const scriptPath = path.resolve("scripts/bump-version.ts")
-      const proc = Bun.spawn(["bun", scriptPath, "patch"], {
+      const { code: exitCode, stdout, stderr } = await run(process.env.BUN_BIN ?? "bun", [scriptPath, "patch"], {
         cwd: tempDir,
-        stdout: "pipe",
-        stderr: "pipe",
       })
-
-      const stdout = await new Response(proc.stdout).text()
-      const stderr = await new Response(proc.stderr).text()
-      const exitCode = await proc.exited
 
       expect(exitCode).toBe(0)
       expect(stderr.trim()).toBe("")

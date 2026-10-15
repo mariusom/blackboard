@@ -1,4 +1,4 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "@effect/vitest"
 import type { Board } from "../src/workspace/model"
 import type { UpdateInfo } from "../src/domain/models"
 import { INITIAL_UPDATE_INFO } from "../src/domain/models"

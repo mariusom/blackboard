@@ -1,8 +1,9 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { spawnProcess } from "./helpers/process"
 import { startWorkspaceServer } from "../src/workspace/server"
 import { CanvasConnection } from "../src/workspace/connection"
 import { Board, BoardSummary } from "../src/workspace/model"
@@ -163,13 +164,15 @@ it("guards canvas deletion behind the revision the agent last read", () => fixtu
 it("serves actual MCP tools over stdio and writes through to the open desktop workspace", () => fixture(async (server, root) => {
   const path = join(root, "runtime.json")
   await writeFile(path, JSON.stringify({ origin: server.origin, token: server.token }))
-  const child = Bun.spawn([process.execPath, resolve("src/mcp-main.ts"), `--connection-file=${path}`], { env: process.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+  const child = spawnProcess(process.env.BUN_BIN ?? "bun", [resolve("src/mcp-main.ts"), `--connection-file=${path}`])
+  const exited = new Promise<void>(resolveExit => child.on("close", () => resolveExit()))
   const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }>()
   let id = 0
   const read = (async () => {
     let buffer = ""
-    for await (const chunk of child.stdout) {
-      buffer += new TextDecoder().decode(chunk)
+    child.stdout?.setEncoding("utf8")
+    for await (const chunk of child.stdout ?? []) {
+      buffer += chunk
       let end = buffer.indexOf("\n")
       while (end !== -1) {
         const packet = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1)
@@ -179,11 +182,11 @@ it("serves actual MCP tools over stdio and writes through to the open desktop wo
     }
   })()
   const rpc = (method: string, params?: unknown) => new Promise<unknown>((resolve, reject) => {
-    const next = ++id; waiting.set(next, { resolve, reject }); child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: next, method, ...(params === undefined ? {} : { params }) })}\n`)
+    const next = ++id; waiting.set(next, { resolve, reject }); child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id: next, method, ...(params === undefined ? {} : { params }) })}\n`)
   })
   try {
     await rpc("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "blackboard-integration-test", version: "1" } })
-    child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+    child.stdin?.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
     const tools = await rpc("tools/list")
     expect(JSON.stringify(tools)).toContain("canvas_create_board")
     expect(JSON.stringify(tools)).toContain("canvas_search")
@@ -199,5 +202,5 @@ it("serves actual MCP tools over stdio and writes through to the open desktop wo
     expect(state.workspace.boards.at(-1)?.html).toBe("<h1>MCP is live</h1>")
     expect(state.workspace.tokens.find(token => token.name === "test-brand")?.value).toBe("#123456")
     expect(state.workspace.tokensRevision).toBe(1)
-  } finally { child.kill(); await child.exited; await read }
+  } finally { child.kill(); await exited; await read }
 }), 15_000)

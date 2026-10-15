@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect } from "@effect/vitest"
 import { isNewerVersion, parseSemVer, resolveTargetAppBundlePath } from "../src/domain/models"
 
 describe("Update domain helpers", () => {

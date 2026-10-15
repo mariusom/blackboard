@@ -1,10 +1,10 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "@effect/vitest"
 import { Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { makeUpdatePreview } from "../src/workspace/updatePreview"
 
-it("emulates checking, installation, restart-later, restart, and replay with no native dependencies", async () => {
-  await Effect.runPromise(Effect.gen(function* () {
+it.effect("emulates checking, installation, restart-later, restart, and replay with no native dependencies", () =>
+  Effect.gen(function* () {
     const preview = yield* makeUpdatePreview
     const check = yield* preview.service.checkForUpdates.pipe(Effect.forkChild)
     yield* TestClock.adjust("900 millis")
@@ -20,5 +20,4 @@ it("emulates checking, installation, restart-later, restart, and replay with no 
     expect((yield* preview.service.getUpdateState).status).toBe("restarting")
     yield* preview.reset
     expect((yield* preview.service.getUpdateState).status).toBe("idle")
-  }).pipe(Effect.provide(TestClock.layer())))
-})
+  }))

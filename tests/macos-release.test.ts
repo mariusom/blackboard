@@ -1,7 +1,8 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "@effect/vitest"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
+import { collect, spawnProcess } from "./helpers/process"
 
 // Exercise the actual packaging script with deterministic Apple-service failures.
 // Signing tools are fakes; this suite verifies orchestration and failure handling.
@@ -83,7 +84,7 @@ async function runRelease(scenario: Scenario = {}) {
     for (const tool of ["cargo", "codesign", "spctl", "ditto", "hdiutil", "xcrun", "minisign", "sleep"]) {
       await fs.symlink(fixture, path.join(bin, tool))
     }
-    const child = Bun.spawn(["/bin/bash", path.resolve("scripts/package-macos-release.sh")], {
+    const child = spawnProcess("/bin/bash", [path.resolve("scripts/package-macos-release.sh")], {
       cwd: root,
       env: {
         ...process.env,
@@ -103,14 +104,8 @@ async function runRelease(scenario: Scenario = {}) {
         RELEASE_TEST_FAILURES: String(scenario.failures ?? 2),
         RELEASE_TEST_DMG_SPACE: scenario.requireDmgSpace ? "1" : "0",
       },
-      stdout: "pipe",
-      stderr: "pipe",
     })
-    const [code, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ])
+    const { code, stdout, stderr } = await collect(child)
     const state: ToolState = JSON.parse(await fs.readFile(stateFile, "utf8"))
     return { code, stdout, stderr, state }
   } finally {

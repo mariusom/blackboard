@@ -1,4 +1,4 @@
-import { expect, it } from "bun:test"
+import { expect, it } from "@effect/vitest"
 import { previewDocument } from "../src/workspace/model"
 import { createPreviewRenderer, type PreviewFrame } from "../src/web/preview"
 

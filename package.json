@@ -14,7 +14,8 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
-    "test": "bun test",
+    "test": "bun ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "bun ./node_modules/vitest/vitest.mjs",
     "mcp": "bun src/mcp-main.ts",
     "mcp:dev": "bun --hot src/mcp-main.ts",
     "bump": "bun scripts/bump-version.ts",
@@ -29,7 +30,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@effect/tsgo": "^0.53.0",
+    "@effect/vitest": "^4.0.4",
     "@types/bun": "^1.4.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
   }
 }
