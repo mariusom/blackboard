@@ -3,6 +3,8 @@ import { Board, clampZoom, exportDocument, fitBoards, previewDocument, zoomAt, t
 import { createTokenPanel } from "./tokens"
 import { AgentFormat, buildAgentPrompt } from "./agentPrompt"
 import { createDOMPreview } from "./preview"
+import { canvasRow, emptyLibraryMessage, visibleCanvases } from "./library"
+import { describeUpdate } from "./updateView"
 import { tokenReferences, type DesignToken } from "../workspace/tokens"
 import { BLANK_HTML } from "../workspace/templates"
 import { WorkspaceState, StreamedWorkspaceState, mergeStreamedState } from "../workspace/protocol"
@@ -59,6 +61,7 @@ window.blackboardHasUnsavedChanges = () => Boolean(editor?.dirty || tokenPanel.h
 let toastTimer: ReturnType<typeof setTimeout>
 let liveTimer: ReturnType<typeof setTimeout>
 const views = new Map<string, { node: HTMLElement; preview: ReturnType<typeof createDOMPreview>; html: string; tokensRevision: string }>()
+const canvasRows = new Map<string, HTMLButtonElement>()
 type HistoryEntry = { before: Board | null; after: Board | null; id: string; revision: number }
 const undoStack: HistoryEntry[] = []
 const redoStack: HistoryEntry[] = []
@@ -329,17 +332,34 @@ function renderLibrary() {
   element("app-version").textContent = `v${state.version}`
   element("stage-label").textContent = state.workspace.boards.length ? "DESIGN EXPLORATIONS" : "YOUR WORKSPACE"
   element("stage-count").textContent = `${state.workspace.boards.length} canvas${state.workspace.boards.length === 1 ? "" : "es"}`
-  const list = element("canvas-list"); list.replaceChildren()
-  const query = element<HTMLInputElement>("canvas-search").value.trim().toLowerCase()
-  const boards = state.workspace.boards.filter(board => board.name.toLowerCase().includes(query))
+  const list = element("canvas-list")
+  const query = element<HTMLInputElement>("canvas-search").value
+  const boards = visibleCanvases(state.workspace.boards, query)
+  const visible = new Set(boards.map(board => board.id))
   for (const board of boards) {
-    const row = document.createElement("button"); row.className = "canvas-row"; row.type = "button"
-    row.classList.toggle("active", board.id === selectedId); row.setAttribute("aria-label", `Select ${board.name}`); row.setAttribute("aria-pressed", String(board.id === selectedId))
-    row.innerHTML = `<span class="canvas-icon">${board.width < board.height ? "▯" : "▤"}</span><span class="canvas-label">${escape(board.name)}</span><small>${board.width} × ${board.height}</small>`
-    row.addEventListener("click", () => { if (select(board.id)) fit([board]) })
+    let row = canvasRows.get(board.id)
+    if (!row) {
+      row = document.createElement("button"); row.className = "canvas-row"; row.type = "button"
+      row.innerHTML = '<span class="canvas-icon"></span><span class="canvas-label"></span><small></small>'
+      const id = board.id
+      row.addEventListener("click", () => { const current = state?.workspace.boards.find(candidate => candidate.id === id); if (current && select(current.id)) fit([current]) })
+      canvasRows.set(board.id, row)
+    }
+    const model = canvasRow(board, selectedId)
+    row.classList.toggle("active", model.active)
+    row.setAttribute("aria-label", `Select ${model.label}`); row.setAttribute("aria-pressed", String(model.active))
+    const icon = row.querySelector(".canvas-icon"); if (icon) icon.textContent = model.icon
+    const label = row.querySelector(".canvas-label"); if (label) label.textContent = model.label
+    const size = row.querySelector("small"); if (size) size.textContent = model.size
     list.append(row)
   }
-  if (!boards.length) { const empty = document.createElement("p"); empty.className = "library-empty"; empty.textContent = query ? "No matching canvases." : "Your canvases will appear here. Start with a frame or an idea."; list.append(empty) }
+  for (const [id, row] of canvasRows) if (!visible.has(id)) { row.remove(); canvasRows.delete(id) }
+  const existingEmpty = list.querySelector<HTMLElement>(".library-empty")
+  if (!boards.length) {
+    const message = emptyLibraryMessage(query)
+    if (existingEmpty) existingEmpty.textContent = message
+    else { const empty = document.createElement("p"); empty.className = "library-empty"; empty.textContent = message; list.append(empty) }
+  } else existingEmpty?.remove()
   element<HTMLButtonElement>("undo-button").disabled = !undoStack.length
   element<HTMLButtonElement>("redo-button").disabled = !redoStack.length
 }
@@ -530,13 +550,13 @@ function renderUpdate() {
   if (!state) return
   const info = state.update
   const preview = state.updatePreview
+  const view = describeUpdate(info, preview)
   element("updates-button").classList.toggle("available", info.hasUpdate)
   element("updates-button").innerHTML = icon(icons.update) + `<span>${info.hasUpdate ? info.status === "ready-to-restart" ? "Restart to update" : "Update available" : info.status === "checking" ? "Checking for updates…" : info.status === "error" ? "Update check failed · Retry" : info.status === "up-to-date" ? "Blackboard is up to date" : "Check for updates"}</span>`
   element("updates-button").setAttribute("aria-label", info.hasUpdate ? `${info.status === "ready-to-restart" ? "Restart to update" : "Update available"} · Blackboard ${info.latestVersion}` : "App updates")
   element("updates-button").title = info.hasUpdate ? `Blackboard ${info.latestVersion} is available` : "App updates"
-  element("update-title").textContent = info.status === "ready-to-restart" ? "Ready when you are." : info.hasUpdate ? `Blackboard ${info.latestVersion}` : "App updates"
-  const working = ["checking", "downloading", "installing"].includes(info.status) || (info.status === "restarting" && !preview)
-  const message = info.status === "available" ? "A new version is ready. Download the signed update, then restart whenever you're ready." : info.status === "downloading" || info.status === "installing" ? "Downloading, verifying, and installing the signed update. You can keep working." : info.status === "ready-to-restart" ? "The signed update is installed. Restart Blackboard to finish. Your canvases are saved locally." : info.status === "manual-download" ? preview ? "DMG download simulated. The real action opens the release download in your browser, with instructions to install it in Applications." : "The download has opened in your browser. Open the DMG, drag Blackboard to Applications, then reopen it." : info.status === "up-to-date" ? "You're on the latest version." : info.status === "checking" ? "Checking for a signed update…" : info.status === "restarting" ? preview ? `Restart simulated. Blackboard would reopen at version ${info.latestVersion}, with your canvases where you left them.` : "Restarting Blackboard…" : info.status === "error" ? info.errorMessage ?? "Could not complete the update." : "Check for the latest signed release of Blackboard."
+  element("update-title").textContent = view.title
+  const working = view.working
   let buttons = ""
   if (!working) {
     if (info.status === "restarting" && preview) buttons = '<button data-update="replay" class="primary">Replay preview</button><button data-later class="quiet">Back to canvas</button>'
@@ -544,10 +564,8 @@ function renderUpdate() {
     else if (info.hasUpdate && info.canInstallAutomatically && info.status !== "manual-download") buttons = `<button data-update="install" class="primary">${info.status === "error" ? "Try again" : "Download and install"}</button><button data-update="download" class="quiet">Download DMG</button>`
     else buttons = `<button data-update="${info.hasUpdate || info.status === "manual-download" ? "download" : "check"}" class="primary">${info.hasUpdate || info.status === "manual-download" ? "Download DMG" : "Check for updates"}</button>`
   }
-  if (info.status === "restarting" && preview) element("update-title").textContent = "You're all set."
-  const stage = info.status === "restarting" ? 3 : info.status === "ready-to-restart" ? 2 : ["downloading", "installing"].includes(info.status) ? 1 : 0
-  const steps = info.hasUpdate ? `<div class="update-steps">${["Available", "Download & verify", "Restart"].map((label, index) => `<div class="${index < stage ? "done" : index === stage ? "current" : ""}" ${index === stage ? 'aria-current="step"' : ""}><span class="step-dot" aria-hidden="true">${index < stage ? "✓" : index + 1}</span><span>${label}</span></div>`).join("")}</div>` : ""
-  element("update-body").innerHTML = `${preview ? '<div class="preview-notice">INTERACTIVE PREVIEW <span>No files are downloaded or installed.</span></div>' : ""}${steps}<div class="update-status" role="status">${escape(message)}</div>${working ? '<div class="update-progress" role="progressbar" aria-label="Update in progress"></div>' : ""}${info.installHint && !info.canInstallAutomatically ? `<p style="font-size:10px;margin:6px 0">${escape(info.installHint)}</p>` : ""}${info.errorMessage && info.status !== "error" ? `<p role="alert">${escape(info.errorMessage)}</p>` : ""}<div class="update-actions">${buttons}</div><div class="update-version">Current version ${escape(info.currentVersion)}</div>`
+  const steps = info.hasUpdate ? `<div class="update-steps">${view.steps.map(step => `<div class="${step.state === "todo" ? "" : step.state}" ${step.state === "current" ? 'aria-current="step"' : ""}><span class="step-dot" aria-hidden="true">${escape(step.marker)}</span><span>${escape(step.label)}</span></div>`).join("")}</div>` : ""
+  element("update-body").innerHTML = `${preview ? '<div class="preview-notice">INTERACTIVE PREVIEW <span>No files are downloaded or installed.</span></div>' : ""}${steps}<div class="update-status" role="status">${escape(view.message)}</div>${working ? '<div class="update-progress" role="progressbar" aria-label="Update in progress"></div>' : ""}${info.installHint && !info.canInstallAutomatically ? `<p style="font-size:10px;margin:6px 0">${escape(info.installHint)}</p>` : ""}${info.errorMessage && info.status !== "error" ? `<p role="alert">${escape(info.errorMessage)}</p>` : ""}<div class="update-actions">${buttons}</div><div class="update-version">Current version ${escape(info.currentVersion)}</div>`
   element("update-body").querySelectorAll<HTMLButtonElement>("button").forEach(button => {
     button.disabled = updateBusy
     button.addEventListener("click", () => {
