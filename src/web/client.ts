@@ -457,7 +457,7 @@ window.blackboardHasUnsavedChanges = () =>
 
 const renderDeps = { select, fit, selectToken: (name: string) => tokenPanel.selectToken(name) };
 const updatePanel = createUpdatePanel({ request: api, refresh, perform, notify: toast });
-const checkUpdates = () => updatePanel.updateAction('check');
+const checkUpdates = () => perform(() => updatePanel.updateAction('check'));
 
 createInteractions({
   select,

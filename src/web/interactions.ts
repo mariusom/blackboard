@@ -23,11 +23,11 @@ export interface InteractionDeps {
 const interactiveTarget = (event: PointerEvent) =>
   event.target instanceof Element ? event.target.closest('button,input,select,textarea') : null;
 
-function beginBoardGesture(event: PointerEvent, deps: InteractionDeps) {
+function beginBoardGesture(event: PointerEvent, deps: InteractionDeps): boolean {
   const target = event.target instanceof Element ? event.target : null;
   const id = target?.closest<HTMLElement>('.board')?.dataset.id;
   const board = app.state?.workspace.boards.find((candidate) => candidate.id === id);
-  if (!deps.select(board?.id ?? null)) return;
+  if (!deps.select(board?.id ?? null)) return false;
   if (board)
     app.gesture = {
       kind: target?.closest('.resize-handle') ? 'resize' : 'move',
@@ -35,6 +35,7 @@ function beginBoardGesture(event: PointerEvent, deps: InteractionDeps) {
       y: event.clientY,
       board,
     };
+  return true;
 }
 
 function beginGesture(event: PointerEvent, deps: InteractionDeps) {
@@ -47,7 +48,7 @@ function beginGesture(event: PointerEvent, deps: InteractionDeps) {
   } else if (app.tool === 'frame') {
     app.gesture = { kind: 'draw', ...localPoint(event) };
     element('draw-ghost').hidden = false;
-  } else beginBoardGesture(event, deps);
+  } else if (!beginBoardGesture(event, deps)) return;
   if (app.gesture) {
     viewport.setPointerCapture(event.pointerId);
     event.preventDefault();
