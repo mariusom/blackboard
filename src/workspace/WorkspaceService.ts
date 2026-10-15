@@ -8,6 +8,7 @@ import { DEFAULT_TOKENS, DeleteToken, TokenList, UpsertTokens, tokenReferences, 
 /** The saved workspace is the app's only durable copy, so commits are made
  * durable with fsync before the atomic rename, and the previous versions are
  * kept as a small ring of recovery snapshots. */
+export const MAX_WORKSPACE_BYTES = 32 * 1024 * 1024
 export const WORKSPACE_BACKUP_COUNT = 5
 const backupPath = (filePath: string, index: number) => `${filePath}.${index}.bak`
 const missingFile = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT"
@@ -45,11 +46,12 @@ export interface WorkspaceServiceShape {
 }
 
 export class WorkspaceService extends Context.Service<WorkspaceService, WorkspaceServiceShape>()("blackboard/WorkspaceService") {
-  static readonly makeLayer = (options: { readonly path?: string; readonly initial?: Workspace | LegacyWorkspace } = {}) =>
+  static readonly makeLayer = (options: { readonly path?: string; readonly initial?: Workspace | LegacyWorkspace; readonly maxBytes?: number } = {}) =>
     Layer.effect(WorkspaceService, Effect.gen(function* () {
       const decode = <A>(schema: Schema.Decoder<A>, input: unknown) => Schema.decodeUnknownEffect(schema)(input).pipe(
         Effect.mapError(() => new WorkspaceError({ code: "invalid", message: "The workspace data is invalid." })),
       )
+      const maxBytes = options.maxBytes ?? MAX_WORKSPACE_BYTES
       const upgrade = (saved: Workspace | LegacyWorkspace): Workspace => saved.version === 2 ? saved : {
         ...saved, version: 2, tokens: DEFAULT_TOKENS, tokensRevision: 0,
         boards: saved.boards.map(board => board.html === LEGACY_STUDIO_HTML ? { ...board, html: STUDIO_HTML, revision: board.revision + 1 } : board),
@@ -65,7 +67,7 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
           catch: () => new WorkspaceError({ code: "storage", message: "Could not read the saved workspace." }),
         })
         if (contents !== null) {
-          const json = yield* Effect.try({ try: () => JSON.parse(contents), catch: () => new WorkspaceError({ code: "invalid", message: "The saved workspace is damaged. Its file has been preserved." }) })
+          const json = yield* Effect.try({ try: () => JSON.parse(contents), catch: () => new WorkspaceError({ code: "invalid", message: "The saved workspace is damaged. Its file has been preserved, and recent backups remain beside it." }) })
           initial = upgrade(yield* decode(SavedWorkspace, json))
         }
       }
@@ -79,6 +81,7 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
       const commit = Effect.fn("Workspace.commit")(function* (next: Workspace) {
         yield* decode(Workspace, next)
         const payload = JSON.stringify(next)
+        if (payload.length > maxBytes) return yield* new WorkspaceError({ code: "invalid", message: `The workspace is too large to save (limit ${Math.round(maxBytes / 1024 / 1024)} MB). Remove large canvases before saving.` })
         const filePath = options.path
         if (filePath) {
           yield* Effect.tryPromise({

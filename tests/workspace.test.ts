@@ -61,6 +61,21 @@ it("rejects stale HTML edits while allowing partial geometry changes to preserve
   } finally { await runtime.dispose() }
 })
 
+it("rejects a workspace that grows past the storage budget without changing live state", async () => {
+  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ maxBytes: 4096 }))
+  try {
+    const result = await runtime.runPromise(Effect.gen(function* () {
+      const workspace = yield* WorkspaceService
+      const before = yield* workspace.get
+      const failed = yield* Effect.result(workspace.create({ ...input, html: `<!--${"x".repeat(5000)}-->` }))
+      return { before, failed, after: yield* workspace.get }
+    }))
+    expect(result.failed._tag).toBe("Failure")
+    if (result.failed._tag === "Failure") expect(result.failed.failure.code).toBe("invalid")
+    expect(result.after).toEqual(result.before)
+  } finally { await runtime.dispose() }
+})
+
 it("keeps the previous saved versions as a rotating ring of backups", () => withWorkspace(async path => {
   const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
   try {
