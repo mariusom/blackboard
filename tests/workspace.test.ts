@@ -1,10 +1,12 @@
 import { expect, it } from "bun:test"
-import { Effect, ManagedRuntime, Stream } from "effect"
+import { Effect, ManagedRuntime, Schema, Stream } from "effect"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { WorkspaceService } from "../src/workspace/WorkspaceService"
 import { fitBoards, zoomAt, type Board } from "../src/workspace/model"
+import { StreamedWorkspaceState, WorkspaceState, mergeStreamedState } from "../src/workspace/protocol"
+import { INITIAL_UPDATE_INFO } from "../src/domain/models"
 
 const input = { name: "Generated canvas", html: "<h1>Hello</h1>", width: 800, height: 600 }
 async function withWorkspace(run: (path: string) => Promise<void>) {
@@ -74,6 +76,19 @@ it("rejects a workspace that grows past the storage budget without changing live
     if (result.failed._tag === "Failure") expect(result.failed.failure.code).toBe("invalid")
     expect(result.after).toEqual(result.before)
   } finally { await runtime.dispose() }
+})
+
+it("restores HTML omitted from a streamed frame using the client's last copy", () => {
+  const board = { ...input, id: "a", x: 0, y: 0, revision: 3 }
+  const base = { workspace: { version: 2, name: "Test", boards: [board], tokens: [], tokensRevision: 0 }, update: INITIAL_UPDATE_INFO, version: "1", agent: { command: "bun", args: [] }, updatePreview: false }
+  const previous = Schema.decodeUnknownSync(WorkspaceState)(base)
+  const omitted = Schema.decodeUnknownSync(StreamedWorkspaceState)({ ...base, workspace: { ...base.workspace, boards: [{ ...board, revision: 4, html: null }] } })
+  const merged = mergeStreamedState(previous, omitted)
+  expect(merged.workspace.boards[0].html).toBe("<h1>Hello</h1>")
+  expect(merged.workspace.boards[0].revision).toBe(4)
+  const fresh = Schema.decodeUnknownSync(StreamedWorkspaceState)({ ...base, workspace: { ...base.workspace, boards: [{ ...board, revision: 4, html: "<h1>Fresh</h1>" }] } })
+  expect(mergeStreamedState(previous, fresh).workspace.boards[0].html).toBe("<h1>Fresh</h1>")
+  expect(mergeStreamedState(undefined, fresh).workspace.boards[0].html).toBe("<h1>Fresh</h1>")
 })
 
 it("keeps the previous saved versions as a rotating ring of backups", () => withWorkspace(async path => {

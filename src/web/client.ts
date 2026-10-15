@@ -5,7 +5,7 @@ import { AgentFormat, buildAgentPrompt } from "./agentPrompt"
 import { createDOMPreview } from "./preview"
 import { tokenReferences, type DesignToken } from "../workspace/tokens"
 import { BLANK_HTML } from "../workspace/templates"
-import { WorkspaceState } from "../workspace/protocol"
+import { WorkspaceState, StreamedWorkspaceState, mergeStreamedState } from "../workspace/protocol"
 
 declare global {
   interface Window { webkit?: { messageHandlers?: { blackboard?: { postMessage: (value: unknown) => void } } }; blackboardHasUnsavedChanges?: () => boolean }
@@ -576,7 +576,7 @@ async function start() {
   layoutReady = true
   const events = new EventSource("/api/events")
   events.onopen = () => { connected = true; renderSaveState(); perform(refresh) }
-  events.onmessage = event => { try { acceptState(Schema.decodeUnknownSync(WorkspaceState)(JSON.parse(event.data))) } catch { toast("Could not read a workspace update. Reload Blackboard.") } }
+  events.onmessage = event => { try { acceptState(mergeStreamedState(state, Schema.decodeUnknownSync(StreamedWorkspaceState)(JSON.parse(event.data)))) } catch { toast("Could not read a workspace update. Reload Blackboard.") } }
   events.onerror = () => { connected = false; renderSaveState() }
   if (state?.update.canInstallAutomatically) perform(() => updateAction("check"))
   setInterval(() => { if (state?.update.canInstallAutomatically) perform(() => updateAction("check")) }, 6 * 60 * 60 * 1000)

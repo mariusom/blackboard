@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { startWorkspaceServer } from "../src/workspace/server"
 import { CanvasConnection } from "../src/workspace/connection"
 import { Board, BoardSummary } from "../src/workspace/model"
-import { WorkspaceState } from "../src/workspace/protocol"
+import { WorkspaceState, StreamedWorkspaceState } from "../src/workspace/protocol"
 import type { UpdateDependencies } from "../src/services/UpdateService"
 
 async function fixture(run: (server: Awaited<ReturnType<typeof startWorkspaceServer>>, root: string) => Promise<void>, updates: Partial<UpdateDependencies> = {}) {
@@ -95,6 +95,36 @@ it("lists and searches canvases by name and content without sending their HTML",
   expect((await list("?query=landing")).map(board => board.name)).toEqual(["Landing page"])
   expect((await list("?query=pricing")).map(board => board.name)).toEqual(["Mobile app"])
   expect(await list("?query=absent")).toEqual([])
+}))
+
+it("omits unchanged canvas HTML from later stream frames", () => fixture(async server => {
+  const post = (path: string, body: unknown) => fetch(server.origin + path, { method: "POST", headers: headers(server.token), body: JSON.stringify(body) })
+  const created = Schema.decodeUnknownSync(Board)(await (await post("/api/boards", { name: "Stats", html: "<h1>First</h1>" })).json())
+  const abort = new AbortController()
+  const response = await fetch(`${server.origin}/api/events`, { headers: headers(server.token), signal: abort.signal })
+  const reader = response.body?.getReader(); if (!reader) throw new Error("No event stream")
+  const nextFrame = async () => {
+    let buffer = ""
+    while (true) {
+      const chunk = await reader.read(); if (chunk.done) throw new Error("Stream ended early")
+      buffer += new TextDecoder().decode(chunk.value)
+      const end = buffer.indexOf("\n\n"); if (end === -1) continue
+      const line = buffer.slice(0, end).split("\n").find(entry => entry.startsWith("data: "))
+      if (line) return Schema.decodeUnknownSync(StreamedWorkspaceState)(JSON.parse(line.slice("data: ".length)))
+    }
+  }
+  try {
+    await reader.read()
+    await post("/api/workspace", { name: "Renamed once" })
+    const first = await nextFrame()
+    expect(first.workspace.boards.find(board => board.id === created.id)?.html).toBe("<h1>First</h1>")
+    await post("/api/workspace", { name: "Renamed twice" })
+    const second = await nextFrame()
+    expect(second.workspace.boards.find(board => board.id === created.id)?.html).toBeNull()
+    await post(`/api/boards/${created.id}`, { html: "<h1>Edited</h1>" })
+    const third = await nextFrame()
+    expect(third.workspace.boards.find(board => board.id === created.id)?.html).toBe("<h1>Edited</h1>")
+  } finally { abort.abort(); await reader.cancel().catch(() => {}) }
 }))
 
 it("serves a single canvas by id so an agent read does not download every board", () => fixture(async server => {

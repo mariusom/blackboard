@@ -36,6 +36,9 @@ export async function startWorkspaceServer(options: {
   }
   const token = crypto.randomUUID() + crypto.randomUUID()
   const subscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
+  // Per-subscriber last-delivered revision, so a frame can omit HTML the
+  // client already holds.
+  const lastSent = new Map<ReadableStreamDefaultController<Uint8Array>, Map<string, number>>()
   const encoder = new TextEncoder()
   const getState = () => runtime.runPromise(Effect.gen(function* () {
     const workspace = yield* WorkspaceService
@@ -89,8 +92,8 @@ export async function startWorkspaceServer(options: {
         if (url.pathname === "/api/events") {
           let subscriber: ReadableStreamDefaultController<Uint8Array>
           const body = new ReadableStream<Uint8Array>({
-            start(controller) { subscriber = controller; subscribers.add(controller); controller.enqueue(encoder.encode(": connected\n\n")) },
-            cancel() { subscribers.delete(subscriber) },
+            start(controller) { subscriber = controller; subscribers.add(controller); lastSent.set(controller, new Map()); controller.enqueue(encoder.encode(": connected\n\n")) },
+            cancel() { subscribers.delete(subscriber); lastSent.delete(subscriber) },
           })
           return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } })
         }
@@ -131,9 +134,14 @@ export async function startWorkspaceServer(options: {
   })
   const abort = new AbortController()
   const broadcast = async () => {
-    const message = encoder.encode(`data: ${JSON.stringify(await getState())}\n\n`)
+    const state = await getState()
     for (const subscriber of subscribers) {
-      try { subscriber.enqueue(message) } catch { subscribers.delete(subscriber) }
+      const seen = lastSent.get(subscriber) ?? new Map<string, number>()
+      const boards = state.workspace.boards.map(board => seen.get(board.id) === board.revision ? { ...board, html: null } : board)
+      for (const board of state.workspace.boards) seen.set(board.id, board.revision)
+      lastSent.set(subscriber, seen)
+      try { subscriber.enqueue(encoder.encode(`data: ${JSON.stringify({ ...state, workspace: { ...state.workspace, boards } })}\n\n`)) }
+      catch { subscribers.delete(subscriber); lastSent.delete(subscriber) }
     }
   }
   const watch = (effect: Effect.Effect<void, never, WorkspaceService | UpdateService>) => {
