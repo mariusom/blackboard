@@ -99,6 +99,21 @@ async function syncDirectory(directory: string) {
     }
   } catch {}
 }
+/** Write the workspace to a temporary file, rotate a snapshot of the current
+ * file, then atomically rename the temporary over it. */
+async function writeWorkspace(filePath: string, payload: string) {
+  await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+  const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeDurably(temporary, payload);
+    await rotateWorkspaceBackups(filePath);
+    await rename(temporary, filePath);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+  await syncDirectory(dirname(filePath));
+}
 
 export interface WorkspaceServiceShape {
   readonly get: Effect.Effect<Workspace>;
@@ -112,58 +127,215 @@ export interface WorkspaceServiceShape {
   readonly deleteToken: (name: string, expectedRevision?: number) => Effect.Effect<TokenCollection, WorkspaceError>;
 }
 
+interface WorkspaceLayerOptions {
+  readonly path?: string;
+  readonly initial?: Workspace | LegacyWorkspace;
+  readonly maxBytes?: number;
+}
+
+interface WorkspaceContext {
+  readonly state: SubscriptionRef.SubscriptionRef<Workspace>;
+  readonly revisions: Map<string, number>;
+  readonly lock: Semaphore.Semaphore;
+  readonly maxBytes: number;
+  readonly filePath: string | undefined;
+}
+
+const decode = <A>(schema: Schema.Decoder<A>, input: unknown) =>
+  Schema.decodeUnknownEffect(schema)(input).pipe(
+    Effect.mapError(() => new WorkspaceError({ code: 'invalid', message: 'The workspace data is invalid.' })),
+  );
+
+const upgrade = (saved: Workspace | LegacyWorkspace): Workspace =>
+  saved.version === 2
+    ? saved
+    : {
+        ...saved,
+        version: 2,
+        tokens: DEFAULT_TOKENS,
+        tokensRevision: 0,
+        boards: saved.boards.map((board) =>
+          board.html === LEGACY_STUDIO_HTML ? { ...board, html: STUDIO_HTML, revision: board.revision + 1 } : board,
+        ),
+      };
+
+const collection = (workspace: Workspace): TokenCollection => ({
+  tokens: workspace.tokens,
+  revision: workspace.tokensRevision,
+});
+
+const checkTokenRevision = (workspace: Workspace, expected?: number) =>
+  expected !== undefined && expected !== workspace.tokensRevision
+    ? Effect.fail(
+        new WorkspaceError({
+          code: 'conflict',
+          message: 'The token library changed elsewhere. Reload it before saving your draft.',
+        }),
+      )
+    : Effect.void;
+
+const loadInitial = (options: WorkspaceLayerOptions) =>
+  Effect.gen(function* () {
+    let initial = upgrade(yield* decode(SavedWorkspace, options.initial ?? EMPTY_WORKSPACE));
+    const filePath = options.path;
+    if (!filePath) return initial;
+    const contents = yield* Effect.tryPromise({
+      try: () => readSavedWorkspace(filePath),
+      catch: () => new WorkspaceError({ code: 'storage', message: 'Could not read the saved workspace.' }),
+    });
+    if (contents === null) return initial;
+    const json = yield* Effect.try({
+      try: () => JSON.parse(contents),
+      catch: () =>
+        new WorkspaceError({
+          code: 'invalid',
+          message: 'The saved workspace is damaged. Its file has been preserved, and recent backups remain beside it.',
+        }),
+    });
+    initial = upgrade(yield* decode(SavedWorkspace, json));
+    return initial;
+  });
+
+const commit = (ctx: WorkspaceContext, next: Workspace) =>
+  Effect.gen(function* () {
+    yield* decode(Workspace, next);
+    const payload = JSON.stringify(next);
+    if (Buffer.byteLength(payload, 'utf8') > ctx.maxBytes)
+      return yield* new WorkspaceError({
+        code: 'invalid',
+        message: `The workspace is too large to save (limit ${Math.round(ctx.maxBytes / 1024 / 1024)} MB). Remove large canvases before saving.`,
+      });
+    if (ctx.filePath)
+      yield* Effect.tryPromise({
+        try: () => writeWorkspace(ctx.filePath as string, payload),
+        catch: () =>
+          new WorkspaceError({
+            code: 'storage',
+            message: 'Could not save the workspace. Your change has not been committed.',
+          }),
+      });
+    yield* Effect.sync(() => {
+      for (const board of next.boards) ctx.revisions.set(board.id, board.revision);
+    });
+    yield* SubscriptionRef.set(ctx.state, next);
+  });
+
+const createBoard = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.create')(function* (input: CreateBoard) {
+    const value = yield* decode(CreateBoard, input);
+    const current = yield* SubscriptionRef.get(ctx.state);
+    if (current.boards.length >= 200)
+      return yield* new WorkspaceError({
+        code: 'invalid',
+        message: 'A workspace can contain up to 200 canvases.',
+      });
+    const id = value.id ?? crypto.randomUUID();
+    if (current.boards.some((b) => b.id === id))
+      return yield* new WorkspaceError({ code: 'conflict', message: 'A canvas with this ID already exists.' });
+    const board: Board = {
+      ...value,
+      id,
+      x: value.x ?? current.boards.reduce((right, b) => Math.max(right, b.x + b.width + 80), 0),
+      y: value.y ?? 0,
+      width: value.width ?? 760,
+      height: value.height ?? 560,
+      revision: (ctx.revisions.get(id) ?? -1) + 1,
+    };
+    yield* commit(ctx, { ...current, boards: [...current.boards, board] });
+    return board;
+  }, ctx.lock.withPermit);
+
+const updateBoard = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.update')(function* (id: string, patch: BoardPatch) {
+    const { expectedRevision, ...fields } = yield* decode(BoardPatch, patch);
+    const current = yield* SubscriptionRef.get(ctx.state);
+    const existing = current.boards.find((b) => b.id === id);
+    if (!existing) return yield* new WorkspaceError({ code: 'missing', message: 'This canvas no longer exists.' });
+    if (expectedRevision !== undefined && expectedRevision !== existing.revision)
+      return yield* new WorkspaceError({
+        code: 'conflict',
+        message: 'This canvas changed elsewhere. Your draft is still in the editor; copy it before reloading.',
+      });
+    const board = yield* decode(Board, { ...existing, ...fields, revision: existing.revision + 1 });
+    yield* commit(ctx, { ...current, boards: current.boards.map((b) => (b.id === id ? board : b)) });
+    return board;
+  }, ctx.lock.withPermit);
+
+const removeBoard = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.remove')(function* (id: string, expectedRevision?: number) {
+    const current = yield* SubscriptionRef.get(ctx.state);
+    const existing = current.boards.find((b) => b.id === id);
+    if (!existing) return yield* new WorkspaceError({ code: 'missing', message: 'This canvas no longer exists.' });
+    if (expectedRevision !== undefined && expectedRevision !== existing.revision)
+      return yield* new WorkspaceError({
+        code: 'conflict',
+        message: 'This canvas changed elsewhere. Review its latest content before deleting it.',
+      });
+    yield* commit(ctx, { ...current, boards: current.boards.filter((b) => b.id !== id) });
+  }, ctx.lock.withPermit);
+
+const renameWorkspace = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.rename')(function* (name: string) {
+    const current = yield* SubscriptionRef.get(ctx.state);
+    yield* commit(ctx, { ...current, name });
+  }, ctx.lock.withPermit);
+
+const upsertTokens = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.upsertTokens')(function* (input: UpsertTokens) {
+    const value = yield* decode(UpsertTokens, input);
+    const current = yield* SubscriptionRef.get(ctx.state);
+    yield* checkTokenRevision(current, value.expectedRevision);
+    if (new Set(value.tokens.map((token) => token.name)).size !== value.tokens.length)
+      return yield* new WorkspaceError({ code: 'invalid', message: 'Each token name must be unique.' });
+    const merged = new Map(current.tokens.map((token) => [token.name, token]));
+    for (const token of value.tokens) {
+      const { category, ...fields } = token;
+      merged.set(token.name, {
+        ...fields,
+        value: token.value.trim(),
+        ...(category?.trim() ? { category: category.trim() } : {}),
+      });
+    }
+    const tokens = yield* decode(TokenList, [...merged.values()]);
+    const error = tokenValidationError(tokens);
+    if (error) return yield* new WorkspaceError({ code: 'invalid', message: error });
+    if (JSON.stringify(tokens) === JSON.stringify(current.tokens)) return collection(current);
+    const next: Workspace = { ...current, tokens, tokensRevision: current.tokensRevision + 1 };
+    yield* commit(ctx, next);
+    return collection(next);
+  }, ctx.lock.withPermit);
+
+const deleteToken = (ctx: WorkspaceContext) =>
+  Effect.fn('Workspace.deleteToken')(function* (name: string, expectedRevision?: number) {
+    yield* decode(DeleteToken, { name, ...(expectedRevision === undefined ? {} : { expectedRevision }) });
+    const current = yield* SubscriptionRef.get(ctx.state);
+    yield* checkTokenRevision(current, expectedRevision);
+    if (!current.tokens.some((token) => token.name === name))
+      return yield* new WorkspaceError({ code: 'missing', message: 'This token no longer exists.' });
+    const boards = current.boards.filter((board) => tokenReferences(board.html).includes(name));
+    const aliases = current.tokens.filter((token) => tokenReferences(token.value).includes(name));
+    if (boards.length || aliases.length)
+      return yield* new WorkspaceError({
+        code: 'conflict',
+        message: `Token '${name}' is used by ${boards.length} canvas(es) and ${aliases.length} token(s). Replace those references before deleting it.`,
+      });
+    const next: Workspace = {
+      ...current,
+      tokens: current.tokens.filter((token) => token.name !== name),
+      tokensRevision: current.tokensRevision + 1,
+    };
+    yield* commit(ctx, next);
+    return collection(next);
+  }, ctx.lock.withPermit);
+
 export class WorkspaceService extends Context.Service<WorkspaceService, WorkspaceServiceShape>()(
   'blackboard/WorkspaceService',
 ) {
-  static readonly makeLayer = (
-    options: {
-      readonly path?: string;
-      readonly initial?: Workspace | LegacyWorkspace;
-      readonly maxBytes?: number;
-    } = {},
-  ) =>
+  static readonly makeLayer = (options: WorkspaceLayerOptions = {}) =>
     Layer.effect(
       WorkspaceService,
       Effect.gen(function* () {
-        const decode = <A>(schema: Schema.Decoder<A>, input: unknown) =>
-          Schema.decodeUnknownEffect(schema)(input).pipe(
-            Effect.mapError(() => new WorkspaceError({ code: 'invalid', message: 'The workspace data is invalid.' })),
-          );
-        const maxBytes = options.maxBytes ?? MAX_WORKSPACE_BYTES;
-        const upgrade = (saved: Workspace | LegacyWorkspace): Workspace =>
-          saved.version === 2
-            ? saved
-            : {
-                ...saved,
-                version: 2,
-                tokens: DEFAULT_TOKENS,
-                tokensRevision: 0,
-                boards: saved.boards.map((board) =>
-                  board.html === LEGACY_STUDIO_HTML
-                    ? { ...board, html: STUDIO_HTML, revision: board.revision + 1 }
-                    : board,
-                ),
-              };
-        let initial = upgrade(yield* decode(SavedWorkspace, options.initial ?? EMPTY_WORKSPACE));
-        const savedPath = options.path;
-        if (savedPath) {
-          const contents = yield* Effect.tryPromise({
-            try: () => readSavedWorkspace(savedPath),
-            catch: () => new WorkspaceError({ code: 'storage', message: 'Could not read the saved workspace.' }),
-          });
-          if (contents !== null) {
-            const json = yield* Effect.try({
-              try: () => JSON.parse(contents),
-              catch: () =>
-                new WorkspaceError({
-                  code: 'invalid',
-                  message:
-                    'The saved workspace is damaged. Its file has been preserved, and recent backups remain beside it.',
-                }),
-            });
-            initial = upgrade(yield* decode(SavedWorkspace, json));
-          }
-        }
+        const initial = yield* loadInitial(options);
         const invalidTokens = tokenValidationError(initial.tokens);
         if (invalidTokens) return yield* new WorkspaceError({ code: 'invalid', message: invalidTokens });
         const state = yield* SubscriptionRef.make(initial);
@@ -171,163 +343,23 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
         // must not become valid again when that same canvas ID is restored.
         const revisions = new Map(initial.boards.map((board) => [board.id, board.revision]));
         const lock = yield* Semaphore.make(1);
-        const commit = Effect.fn('Workspace.commit')(function* (next: Workspace) {
-          yield* decode(Workspace, next);
-          const payload = JSON.stringify(next);
-          if (Buffer.byteLength(payload, 'utf8') > maxBytes)
-            return yield* new WorkspaceError({
-              code: 'invalid',
-              message: `The workspace is too large to save (limit ${Math.round(maxBytes / 1024 / 1024)} MB). Remove large canvases before saving.`,
-            });
-          const filePath = options.path;
-          if (filePath) {
-            yield* Effect.tryPromise({
-              try: async () => {
-                await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-                const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
-                try {
-                  await writeDurably(temporary, payload);
-                  await rotateWorkspaceBackups(filePath);
-                  await rename(temporary, filePath);
-                } catch (error) {
-                  await rm(temporary, { force: true }).catch(() => {});
-                  throw error;
-                }
-                await syncDirectory(dirname(filePath));
-              },
-              catch: () =>
-                new WorkspaceError({
-                  code: 'storage',
-                  message: 'Could not save the workspace. Your change has not been committed.',
-                }),
-            });
-          }
-          yield* Effect.sync(() => {
-            for (const board of next.boards) revisions.set(board.id, board.revision);
-          });
-          yield* SubscriptionRef.set(state, next);
-        });
-        const create = Effect.fn('Workspace.create')(function* (input: CreateBoard) {
-          const value = yield* decode(CreateBoard, input);
-          const current = yield* SubscriptionRef.get(state);
-          if (current.boards.length >= 200)
-            return yield* new WorkspaceError({
-              code: 'invalid',
-              message: 'A workspace can contain up to 200 canvases.',
-            });
-          const id = value.id ?? crypto.randomUUID();
-          if (current.boards.some((b) => b.id === id))
-            return yield* new WorkspaceError({ code: 'conflict', message: 'A canvas with this ID already exists.' });
-          const board: Board = {
-            ...value,
-            id,
-            x: value.x ?? current.boards.reduce((right, b) => Math.max(right, b.x + b.width + 80), 0),
-            y: value.y ?? 0,
-            width: value.width ?? 760,
-            height: value.height ?? 560,
-            revision: (revisions.get(id) ?? -1) + 1,
-          };
-          yield* commit({ ...current, boards: [...current.boards, board] });
-          return board;
-        }, lock.withPermit);
-        const update = Effect.fn('Workspace.update')(function* (id: string, patch: BoardPatch) {
-          const { expectedRevision, ...fields } = yield* decode(BoardPatch, patch);
-          const current = yield* SubscriptionRef.get(state);
-          const existing = current.boards.find((b) => b.id === id);
-          if (!existing)
-            return yield* new WorkspaceError({ code: 'missing', message: 'This canvas no longer exists.' });
-          if (expectedRevision !== undefined && expectedRevision !== existing.revision)
-            return yield* new WorkspaceError({
-              code: 'conflict',
-              message: 'This canvas changed elsewhere. Your draft is still in the editor; copy it before reloading.',
-            });
-          const board = yield* decode(Board, { ...existing, ...fields, revision: existing.revision + 1 });
-          yield* commit({ ...current, boards: current.boards.map((b) => (b.id === id ? board : b)) });
-          return board;
-        }, lock.withPermit);
-        const remove = Effect.fn('Workspace.remove')(function* (id: string, expectedRevision?: number) {
-          const current = yield* SubscriptionRef.get(state);
-          const existing = current.boards.find((b) => b.id === id);
-          if (!existing)
-            return yield* new WorkspaceError({ code: 'missing', message: 'This canvas no longer exists.' });
-          if (expectedRevision !== undefined && expectedRevision !== existing.revision)
-            return yield* new WorkspaceError({
-              code: 'conflict',
-              message: 'This canvas changed elsewhere. Review its latest content before deleting it.',
-            });
-          yield* commit({ ...current, boards: current.boards.filter((b) => b.id !== id) });
-        }, lock.withPermit);
-        const renameWorkspace = Effect.fn('Workspace.rename')(function* (name: string) {
-          const current = yield* SubscriptionRef.get(state);
-          yield* commit({ ...current, name });
-        }, lock.withPermit);
-        const collection = (workspace: Workspace): TokenCollection => ({
-          tokens: workspace.tokens,
-          revision: workspace.tokensRevision,
-        });
-        const checkTokenRevision = (workspace: Workspace, expected?: number) =>
-          expected !== undefined && expected !== workspace.tokensRevision
-            ? Effect.fail(
-                new WorkspaceError({
-                  code: 'conflict',
-                  message: 'The token library changed elsewhere. Reload it before saving your draft.',
-                }),
-              )
-            : Effect.void;
-        const upsertTokens = Effect.fn('Workspace.upsertTokens')(function* (input: UpsertTokens) {
-          const value = yield* decode(UpsertTokens, input);
-          const current = yield* SubscriptionRef.get(state);
-          yield* checkTokenRevision(current, value.expectedRevision);
-          if (new Set(value.tokens.map((token) => token.name)).size !== value.tokens.length)
-            return yield* new WorkspaceError({ code: 'invalid', message: 'Each token name must be unique.' });
-          const merged = new Map(current.tokens.map((token) => [token.name, token]));
-          for (const token of value.tokens) {
-            const { category, ...fields } = token;
-            merged.set(token.name, {
-              ...fields,
-              value: token.value.trim(),
-              ...(category?.trim() ? { category: category.trim() } : {}),
-            });
-          }
-          const tokens = yield* decode(TokenList, [...merged.values()]);
-          const error = tokenValidationError(tokens);
-          if (error) return yield* new WorkspaceError({ code: 'invalid', message: error });
-          if (JSON.stringify(tokens) === JSON.stringify(current.tokens)) return collection(current);
-          const next: Workspace = { ...current, tokens, tokensRevision: current.tokensRevision + 1 };
-          yield* commit(next);
-          return collection(next);
-        }, lock.withPermit);
-        const deleteToken = Effect.fn('Workspace.deleteToken')(function* (name: string, expectedRevision?: number) {
-          yield* decode(DeleteToken, { name, ...(expectedRevision === undefined ? {} : { expectedRevision }) });
-          const current = yield* SubscriptionRef.get(state);
-          yield* checkTokenRevision(current, expectedRevision);
-          if (!current.tokens.some((token) => token.name === name))
-            return yield* new WorkspaceError({ code: 'missing', message: 'This token no longer exists.' });
-          const boards = current.boards.filter((board) => tokenReferences(board.html).includes(name));
-          const aliases = current.tokens.filter((token) => tokenReferences(token.value).includes(name));
-          if (boards.length || aliases.length)
-            return yield* new WorkspaceError({
-              code: 'conflict',
-              message: `Token '${name}' is used by ${boards.length} canvas(es) and ${aliases.length} token(s). Replace those references before deleting it.`,
-            });
-          const next: Workspace = {
-            ...current,
-            tokens: current.tokens.filter((token) => token.name !== name),
-            tokensRevision: current.tokensRevision + 1,
-          };
-          yield* commit(next);
-          return collection(next);
-        }, lock.withPermit);
+        const ctx: WorkspaceContext = {
+          state,
+          revisions,
+          lock,
+          maxBytes: options.maxBytes ?? MAX_WORKSPACE_BYTES,
+          filePath: options.path,
+        };
         return WorkspaceService.of({
           get: SubscriptionRef.get(state),
           changes: SubscriptionRef.changes(state),
-          create,
-          update,
-          remove,
-          rename: renameWorkspace,
+          create: createBoard(ctx),
+          update: updateBoard(ctx),
+          remove: removeBoard(ctx),
+          rename: renameWorkspace(ctx),
           getTokens: SubscriptionRef.get(state).pipe(Effect.map(collection)),
-          upsertTokens,
-          deleteToken,
+          upsertTokens: upsertTokens(ctx),
+          deleteToken: deleteToken(ctx),
         });
       }),
     );
