@@ -1,0 +1,46 @@
+name: CI
+
+# Releases verify types, Effect diagnostics, and tests inside release.yml, but
+# that only runs on manual dispatch. This keeps main and pull requests honest
+# between releases. The suite runs on Linux; the macOS signing job lives in
+# release.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js for pnpm
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.3'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify types, Effect diagnostics, and tests
+        run: |
+          pnpm run typecheck
+          pnpm run check:effect
+          bun test
