@@ -17,6 +17,10 @@
     {
       "path": "blackboard",
       "main": true
+    },
+    {
+      "path": "blackboard-webkit",
+      "main": false
     }
   ]
 }

@@ -13,6 +13,10 @@ env -u CARGO_PACKAGER_SIGN_PRIVATE_KEY -u CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWO
   -u APPLE_SIGNING_IDENTITY -u APPLE_ID -u APPLE_APP_SPECIFIC_PASSWORD -u APPLE_TEAM_ID \
   cargo packager --release --config packager.json --formats app
 APP_PATH="bundle/Blackboard.app"
+# Package managers can re-sign nested executables. Give the WebKit host its
+# final Developer ID signature before sealing the outer application bundle.
+codesign --force --timestamp --options runtime \
+  --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH/Contents/MacOS/blackboard-webkit"
 codesign --force --timestamp --options runtime \
   --entitlements assets/macos/entitlements.plist \
   --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"

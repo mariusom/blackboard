@@ -24,6 +24,7 @@ if name == 'cargo':
         app = pathlib.Path('bundle/Blackboard.app/Contents/MacOS')
         app.mkdir(parents=True)
         (app / 'blackboard').write_text('fixture executable')
+        (app / 'blackboard-webkit').write_text('fixture WebKit host')
 elif name == 'ditto':
     if args[0] == '-c': pathlib.Path(args[-1]).touch()
     else: shutil.copytree(args[0], args[1])

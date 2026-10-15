@@ -45,6 +45,15 @@ function resolveNativeAddonPath(): string {
   )
 }
 
+fs.mkdirSync("dist", { recursive: true })
+execFileSync("/usr/bin/swiftc", ["native/Blackboard.swift", "-o", "dist/blackboard-webkit", "-O", "-framework", "AppKit", "-framework", "WebKit"], { stdio: "inherit" })
+if (process.env.APPLE_SIGNING_IDENTITY) {
+  execFileSync("/usr/bin/codesign", ["--force", "--timestamp", "--options", "runtime", "--sign", process.env.APPLE_SIGNING_IDENTITY, "dist/blackboard-webkit"], { stdio: "inherit" })
+}
+const webBuild = await Bun.build({ entrypoints: ["src/web/client.ts"], target: "browser", minify: true })
+if (!webBuild.success) throw new Error(webBuild.logs.join("\n"))
+const webScript = await webBuild.outputs[0].text()
+
 let addonPath = resolveNativeAddonPath()
 // Embedded native code must carry the same Developer ID signature as the host.
 // Copy it first so the package manager's shared store is never modified.
@@ -87,9 +96,11 @@ const gpuixNativeEmbed: BunPlugin = {
 }
 
 const result = await Bun.build({
-  entrypoints: ["src/main.tsx"],
+  entrypoints: ["src/main.ts"],
   define: {
     BLACKBOARD_UPDATER_PUBLIC_KEY: JSON.stringify(process.env.UPDATER_PUBLIC_KEY ?? ""),
+    BLACKBOARD_WEB_CLIENT: JSON.stringify(webScript),
+    BLACKBOARD_PACKAGED: "true",
   },
   compile: {
     outfile: "dist/blackboard",

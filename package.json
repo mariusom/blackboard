@@ -8,7 +8,7 @@
   },
   "packageManager": "pnpm@12.11.2",
   "scripts": {
-    "dev": "bun --hot src/main.tsx",
+    "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
@@ -22,14 +22,11 @@
     "@effect/platform": "^0.97.2",
     "@effect/platform-node": "^4.0.4",
     "@gpuix/native": "0.10.0",
-    "@gpuix/react": "0.10.0",
-    "effect": "^4.0.4",
-    "react": "^19.3.0"
+    "effect": "^4.0.4"
   },
   "devDependencies": {
     "@effect/tsgo": "^0.53.0",
     "@types/bun": "^1.4.3",
-    "@types/react": "^19.3.0",
     "typescript": "^7.0.2"
   }
 }

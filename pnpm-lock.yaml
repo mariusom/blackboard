@@ -175,15 +175,9 @@ importers:
       '@gpuix/native':
         specifier: 0.10.0
         version: 0.10.0
-      '@gpuix/react':
-        specifier: 0.10.0
-        version: 0.10.0(react@19.3.0)
       effect:
         specifier: ^4.0.4
         version: 4.0.4
-      react:
-        specifier: ^19.3.0
-        version: 19.3.0
     devDependencies:
       '@effect/tsgo':
         specifier: ^0.53.0
@@ -191,9 +185,6 @@ importers:
       '@types/bun':
         specifier: ^1.4.3
         version: 1.4.3
-      '@types/react':
-        specifier: ^19.3.0
-        version: 19.3.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -276,11 +267,6 @@ packages:
   '@gpuix/native@0.10.0':
     resolution: {integrity: sha512-hBvQ0vT1ybOoRDQu6JASgRfdcWFbHTRQ0Fr3oiTxdclvzdR8v9fBUQVYfVtgZnnL4pl1LS02eNrQx8//E6/Xjw==}
 
-  '@gpuix/react@0.10.0':
-    resolution: {integrity: sha512-RB//IrYBghiso0K0h8V+K9huwzONtEhwdpXoCs/rZjqN1F4RGxjhaeChtAwTt/JnjTSM1rcLi5cicM1xy8kr+g==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
     cpu: [arm64]
@@ -352,9 +338,6 @@ packages:
 
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
-
-  '@types/react@19.3.0':
-    resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
 
   '@types/ws@8.18.2':
     resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
@@ -482,9 +465,6 @@ packages:
   bun-types@1.4.3:
     resolution: {integrity: sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg==}
 
-  csstype@3.2.3:
-    resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
-
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
@@ -513,22 +493,9 @@ packages:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
 
-  react-reconciler@0.31.0:
-    resolution: {integrity: sha512-7Ob7Z+URmesIsIVRjnLoDGwBEG/tVitidU0nMsqX/eeJaLY89RISO/10ERe0MqmzuKUUB1rmY+h1itMbUHg9BQ==}
-    engines: {node: '>=0.10.0'}
-    peerDependencies:
-      react: ^19.0.0
-
-  react@19.3.0:
-    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
-    engines: {node: '>=0.10.0'}
-
   redis@6.3.0:
     resolution: {integrity: sha512-XFQbPie1lGpKeUZ8ySYY43yLnQy/iIQtHNvIr/1XdaABpb96rUSdm3Mfl+98FEVbv9ZJIzINMno5s0Nh8E5LEw==}
     engines: {node: '>= 20.0.0'}
-
-  scheduler@0.25.0:
-    resolution: {integrity: sha512-xFVuu11jh+xcO7JOAGJNOXld8/TcEHK/4CituBUeUb5hqxJLj9YuemAEuvm9gQ/+pgXYfbQuqAkiYu+u7YEsNA==}
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -637,12 +604,6 @@ snapshots:
       '@gpuix/native-linux-x64-gnu': 0.10.0
       '@gpuix/native-win32-x64-msvc': 0.10.0
 
-  '@gpuix/react@0.10.0(react@19.3.0)':
-    dependencies:
-      '@gpuix/native': 0.10.0
-      react: 19.3.0
-      react-reconciler: 0.31.0(react@19.3.0)
-
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     optional: true
 
@@ -686,10 +647,6 @@ snapshots:
   '@types/node@26.6.5':
     dependencies:
       undici-types: 8.9.0
-
-  '@types/react@19.3.0':
-    dependencies:
-      csstype: 3.2.3
 
   '@types/ws@8.18.2':
     dependencies:
@@ -760,8 +717,6 @@ snapshots:
       '@types/node': 26.6.5
       undici-types: 8.11.2
 
-  csstype@3.2.3: {}
-
   detect-libc@2.1.2:
     optional: true
 
@@ -794,13 +749,6 @@ snapshots:
       detect-libc: 2.1.2
     optional: true
 
-  react-reconciler@0.31.0(react@19.3.0):
-    dependencies:
-      react: 19.3.0
-      scheduler: 0.25.0
-
-  react@19.3.0: {}
-
   redis@6.3.0:
     dependencies:
       '@redis/bloom': 6.3.0(@redis/client@6.3.0)
@@ -811,8 +759,6 @@ snapshots:
     transitivePeerDependencies:
       - '@node-rs/xxhash'
       - '@opentelemetry/api'
-
-  scheduler@0.25.0: {}
 
   typescript@7.0.2:
     optionalDependencies:

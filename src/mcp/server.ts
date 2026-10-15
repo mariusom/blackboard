@@ -1,91 +1,38 @@
 import { Effect, Layer, Schema } from "effect"
 import { McpProtocol, McpServer } from "effect/ai"
 import { APP_VERSION } from "../domain/models"
-import { CANVAS_MCP_RESOURCE_URI, CANVAS_MCP_SERVER_NAME } from "../domain/canvas"
-import { CanvasService } from "../services/CanvasService"
-import {
-  CanvasToolkit,
-  CanvasCreateElement,
-  CanvasUpdateElement,
-  CanvasRemoveElement,
-  CanvasListElements,
-  CanvasClear,
-  CanvasSetPage,
-} from "./canvasToolkit"
+import { WorkspaceError } from "../workspace/model"
+import { CanvasConnection } from "../workspace/connection"
+import { CanvasToolkit, CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard } from "./canvasToolkit"
 
-/**
- * MCP tool handlers — pure Effect, backed by CanvasService.
- * Schemas for params/success come from `canvasToolkit.ts` (Effect Schema).
- */
-const CanvasHandlersLive = CanvasToolkit.toLayer(
-  Effect.gen(function* () {
-    const canvas = yield* CanvasService
-    return CanvasToolkit.of({
-      [CanvasCreateElement.name]: ({ tag, text, subtitle, glyph, style, href, id }) =>
-        canvas.createElement({ tag, text, subtitle, glyph, style, href, id }),
-      [CanvasUpdateElement.name]: ({ id, patch }) => canvas.updateElement(id, patch),
-      [CanvasRemoveElement.name]: ({ id }) =>
-        canvas.removeElement(id).pipe(Effect.as({ removedId: id })),
-      [CanvasListElements.name]: () =>
-        canvas.listElements.pipe(Effect.map((elements) => ({ elements: [...elements] }))),
-      [CanvasClear.name]: () => canvas.clearElements.pipe(Effect.as({ cleared: true as const })),
-      [CanvasSetPage.name]: ({ elements }) =>
-        canvas.replaceAll(elements).pipe(Effect.map((next) => ({ elements: [...next] }))),
-    })
-  }),
-)
-
-/** Live view of the canvas as an MCP resource. */
-const CanvasResourceLive = McpServer.resource({
-  uri: CANVAS_MCP_RESOURCE_URI,
-  name: "Blackboard canvas elements",
-  description: "Current HTML-ish element list rendered by the browser canvas.",
-  mimeType: "application/json",
-  content: Effect.gen(function* () {
-    const canvas = yield* CanvasService
-    const elements = yield* canvas.listElements
-    return JSON.stringify({ elements }, null, 2)
-  }),
-})
-
-/** Guided prompt for page generation. */
-const CanvasPromptLive = McpServer.prompt({
-  name: "design-canvas-page",
-  description: "Generate a small canvas page (hero + body + badge) via canvas_set_page.",
-  parameters: {
-    topic: Schema.String,
-  },
-  content: ({ topic }) =>
-    Effect.succeed(
-      `Build a Blackboard canvas page about "${topic}" with canvas_set_page: one h1 hero with a glyph, one p intro line, and one badge footer. Keep text short, use style sparingly (background, color, fontSize, borderRadius).`,
-    ),
-})
-
-const CanvasCapabilitiesLive = Layer.mergeAll(
-  McpServer.toolkit(CanvasToolkit),
-  CanvasResourceLive,
-  CanvasPromptLive,
-)
-
-const CanvasMcpBase = CanvasCapabilitiesLive.pipe(
-  Layer.provideMerge(CanvasHandlersLive),
-  Layer.provideMerge(CanvasService.layer),
-)
-
-/**
- * Stdio transport using the latest MCP spec first, with compat fallbacks.
- * Order: 2026-07-28 (latest, stateless) → 2025-11-25 → 2025-06-18.
- */
-export const CanvasMcpStdioLive = Layer.mergeAll(CanvasMcpBase).pipe(
-  Layer.provide(
-    McpServer.layerStdio({
-      name: CANVAS_MCP_SERVER_NAME,
-      version: APP_VERSION,
-      instructions:
-        "Blackboard browser-canvas MCP server. Use canvas_* tools to create HTML-ish elements (tag + text + css style) rendered by the desktop browser canvas.",
-      protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25, McpProtocol.v2025_06_18],
+const CanvasHandlersLive = CanvasToolkit.toLayer(Effect.gen(function* () {
+  const connection = yield* CanvasConnection
+  return CanvasToolkit.of({
+    [CanvasListBoards.name]: () => connection.list,
+    [CanvasGetBoard.name]: ({ id }) => Effect.gen(function* () {
+      const board = (yield* connection.list).boards.find(b => b.id === id)
+      if (!board) return yield* new WorkspaceError({ code: "missing", message: `Canvas '${id}' was not found.` })
+      return board
     }),
-  ),
+    [CanvasCreateBoard.name]: input => connection.create(input),
+    [CanvasUpdateBoard.name]: ({ id, patch }) => connection.update(id, patch),
+    [CanvasDeleteBoard.name]: ({ id }) => connection.remove(id).pipe(Effect.as({ removedId: id })),
+  })
+}))
+const WorkspaceResource = McpServer.resource({
+  uri: "canvas://blackboard/workspace", name: "Blackboard workspace", mimeType: "application/json",
+  description: "The saved workspace currently open in Blackboard. All tools edit this same live workspace.",
+  content: Effect.gen(function* () { return JSON.stringify(yield* (yield* CanvasConnection).list, null, 2) }),
+})
+const CanvasPrompt = McpServer.prompt({
+  name: "design-canvas-page", description: "Design HTML/CSS canvases in the open Blackboard workspace.", parameters: { topic: Schema.String },
+  content: ({ topic }) => Effect.succeed(`Design ${topic} in Blackboard. First call canvas_list_boards. Create or update named canvases with complete HTML/CSS, using canvas_create_board or canvas_update_board. Preserve unrelated work. Use expectedRevision for HTML updates. Give desktop and mobile variants their own canvases. Use inline CSS and embedded images/SVG; canvas previews disable scripts and external resources. The output should appear in Blackboard.`),
+})
+const Capabilities = Layer.mergeAll(McpServer.toolkit(CanvasToolkit), WorkspaceResource, CanvasPrompt).pipe(
+  Layer.provide(CanvasHandlersLive), Layer.provide(CanvasConnection.layer),
 )
-
-export const CanvasMcpProtocols = ["2026-07-28", "2025-11-25", "2025-06-18"] as const
+export const CanvasMcpStdioLive = Capabilities.pipe(Layer.provide(McpServer.layerStdio({
+  name: "blackboard-canvas", version: APP_VERSION,
+  instructions: "Create and edit HTML/CSS canvases in the open Blackboard app. Inspect existing canvases first. Tools update the live saved workspace. Use inline assets, HTML and CSS; scripts and external requests are disabled in previews.",
+  protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25, McpProtocol.v2025_06_18],
+})))
