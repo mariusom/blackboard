@@ -55,9 +55,9 @@ it('rejects CSS and HTML injection and values incompatible with their types', ()
     '#fff!important',
     'var(--brand, #fff)',
   ]) {
-    expect(() => tokensCSS([{ ...brand, value }])).toThrow();
+    expect(() => tokensCSS([{ ...brand, value }])).toThrow(/Invalid color value/);
   }
-  expect(() => Schema.decodeSync(DesignToken)({ ...brand, name: 'x; color:red' })).toThrow();
+  expect(() => Schema.decodeSync(DesignToken)({ ...brand, name: 'x; color:red' })).toThrow(/string matching/);
   expect(tokenValidationError([{ ...brand, type: 'font-family', value: 'system-ui, url(x)' }])).not.toBeNull();
   expect(tokenValidationError([{ ...brand, type: 'spacing', value: '-1px' }])).not.toBeNull();
   expect(tokenValidationError([{ ...brand, type: 'font-weight', value: '1001' }])).not.toBeNull();
@@ -176,5 +176,5 @@ it('groups custom categories across types and searches category names without ch
   expect(groupTokens([brand, gap, alias], 'brand').find((group) => group.label === 'Brand')?.tokens).toHaveLength(2);
   expect(groupTokens([brand, gap, alias], 'missing')).toEqual([]);
   expect(tokensCSS([brand, gap])).not.toContain('Brand');
-  expect(() => Schema.decodeSync(DesignToken)({ ...brand, category: 'x'.repeat(61) })).toThrow();
+  expect(() => Schema.decodeSync(DesignToken)({ ...brand, category: 'x'.repeat(61) })).toThrow(/60/);
 });

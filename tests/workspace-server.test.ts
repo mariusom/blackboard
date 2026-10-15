@@ -289,7 +289,8 @@ it('guards canvas deletion behind the revision the agent last read', () =>
         }),
       );
       expect(result.stale._tag).toBe('Failure');
-      if (result.stale._tag === 'Failure') expect(result.stale.failure.code).toBe('conflict');
+      const staleCode = result.stale._tag === 'Failure' ? result.stale.failure.code : null;
+      expect(staleCode).toBe('conflict');
       expect(result.missing._tag).toBe('Failure');
       expect(result.guard).toBe(400);
       expect(result.boards).toBe(0);
