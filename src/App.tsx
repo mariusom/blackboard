@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react"
-import { Effect, Schedule } from "effect"
+import React, { useEffect, useState, useCallback, useRef } from "react"
+import { Effect, Schedule, Stream } from "effect"
 import { appRuntime } from "./services/AppRuntime"
 import { GreetingService } from "./services/GreetingService"
 import { CounterService } from "./services/CounterService"
@@ -7,11 +7,13 @@ import { ActivityService } from "./services/ActivityService"
 import { ThemeService } from "./services/ThemeService"
 import { UpdateService } from "./services/UpdateService"
 import { CanvasService } from "./services/CanvasService"
+import { UpdatePanel } from "./components/UpdatePanel"
 import { BrowserCanvas } from "./components/BrowserCanvas"
 import {
   APP_THEMES,
   APP_VERSION,
-  GITHUB_REPO,
+  INITIAL_UPDATE_INFO,
+  isUpdateBusy,
   INITIAL_GREETINGS,
   type AppThemeConfig,
   type TelemetryEvent,
@@ -26,25 +28,19 @@ import { CanvasMcpProtocols } from "./mcp/server"
 
 const CANVAS_URL = "canvas://blackboard/home"
 
-export function App() {
+export function App({ runtime = appRuntime }: { readonly runtime?: typeof appRuntime } = {}) {
   const [theme, setTheme] = useState<AppThemeConfig>(APP_THEMES.charcoal)
   const [greetingLabel, setGreetingLabel] = useState<string>(`${INITIAL_GREETINGS[0].greeting} · ${INITIAL_GREETINGS[0].language}`)
   const [count, setCount] = useState<number>(0)
   const [counterError, setCounterError] = useState<string | null>(null)
   const [history, setHistory] = useState<readonly TelemetryEvent[]>([])
   const [canvasElements, setCanvasElements] = useState<readonly CanvasElement[]>(INITIAL_CANVAS_ELEMENTS)
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo>({
-    currentVersion: APP_VERSION,
-    latestVersion: APP_VERSION,
-    hasUpdate: false,
-    downloadUrl: null,
-    releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
-    status: "idle",
-    errorMessage: null,
-  })
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo>(INITIAL_UPDATE_INFO)
+  const [showUpdates, setShowUpdates] = useState(false)
+  const dismissedVersion = useRef<string | null>(null)
 
   const refreshState = useCallback(() => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const greetingSvc = yield* GreetingService
@@ -75,15 +71,15 @@ export function App() {
         setHistory(state.history)
         setCanvasElements(state.elements)
       })
-  }, [])
+  }, [runtime])
 
   const handleCheckUpdates = useCallback(() => {
-    setUpdateInfo((prev) => ({ ...prev, status: "checking", errorMessage: null }))
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const updateSvc = yield* UpdateService
           const activitySvc = yield* ActivityService
+          const previous = yield* updateSvc.getUpdateState
           const result = yield* updateSvc.checkForUpdates.pipe(
             Effect.map((info) => ({ info, error: null as string | null })),
             Effect.catchTag("UpdateError", (err) =>
@@ -92,59 +88,85 @@ export function App() {
           )
           if (result.error) {
             yield* activitySvc.record("Update Check", `Update check failed: ${result.error}`, "warn")
-          } else if (result.info && result.info.hasUpdate) {
+          } else if (result.info && result.info.hasUpdate && (previous.latestVersion !== result.info.latestVersion || !previous.hasUpdate)) {
             yield* activitySvc.record(
               "Update Check",
               `New update v${result.info.latestVersion} is available`,
               "success",
             )
-          } else if (result.info) {
+          } else if (result.info && !result.info.hasUpdate && previous.status !== "up-to-date") {
             yield* activitySvc.record(
               "Update Check",
               `App is up to date (v${result.info.currentVersion})`,
               "info",
             )
           }
-          const hist = yield* activitySvc.getHistory
-          const state = yield* updateSvc.getUpdateState
-          return { hist, state }
+          return yield* activitySvc.getHistory
         }),
       )
-      .then(({ hist, state }) => {
-        setHistory(hist)
-        setUpdateInfo(state)
-      })
-  }, [])
+      .then(setHistory)
+  }, [runtime])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    runtime.runPromise(Effect.gen(function* () {
+      const updates = yield* UpdateService
+      yield* Stream.runForEach(updates.stateChanges, (info) => Effect.sync(() => {
+        setUpdateInfo(info)
+        if (info.status === "error" || info.status === "ready-to-restart" ||
+          (info.hasUpdate && info.latestVersion !== dismissedVersion.current)) setShowUpdates(true)
+      }))
+    }), { signal: controller.signal }).catch((error) => {
+      if (!controller.signal.aborted) console.error("Could not observe update status", error)
+    })
+    return () => controller.abort()
+  }, [runtime])
 
   useEffect(() => {
     refreshState()
     const controller = new AbortController()
-    appRuntime.runPromise(
+    runtime.runPromise(
       Effect.sync(handleCheckUpdates).pipe(Effect.repeat(Schedule.spaced("6 hours"))),
       { signal: controller.signal },
-    ).catch(() => { /* Unmount interrupts the polling schedule. */ })
+    ).catch((error) => {
+      if (!controller.signal.aborted) console.error("Could not schedule update checks", error)
+    })
     return () => controller.abort()
   }, [refreshState, handleCheckUpdates])
 
   const handleUpdateAction = useCallback(() => {
-    if (["checking", "downloading", "installing"].includes(updateInfo.status)) return
-    if (updateInfo.status !== "ready-to-restart" && !updateInfo.hasUpdate) {
-      handleCheckUpdates()
-      return
-    }
-    const restarting = updateInfo.status === "ready-to-restart"
-    if (!restarting) setUpdateInfo((info) => ({ ...info, status: "downloading", errorMessage: null }))
-    appRuntime.runPromise(Effect.gen(function* () {
+    if (isUpdateBusy(updateInfo.status)) return
+    runtime.runPromise(Effect.gen(function* () {
       const updates = yield* UpdateService
+      const activity = yield* ActivityService
+      const restarting = (yield* updates.getUpdateState).status === "ready-to-restart"
       yield* (restarting ? updates.restartApp : updates.installUpdate).pipe(
-        Effect.catchTag("UpdateError", () => Effect.void),
+        Effect.tap(() => activity.record("App Update", restarting ? "Restarting Blackboard" : "Update installed. Restart when you're ready.", "success")),
+        Effect.catchTag("UpdateError", (error) => activity.record("App Update", error.message, "warn")),
       )
-      return yield* updates.getUpdateState
-    })).then(setUpdateInfo)
-  }, [updateInfo.status, updateInfo.hasUpdate, handleCheckUpdates])
+      return yield* activity.getHistory
+    })).then(setHistory)
+  }, [runtime, updateInfo.status])
+
+  const handleDownloadUpdate = useCallback(() => {
+    runtime.runPromise(Effect.gen(function* () {
+      const updates = yield* UpdateService
+      yield* updates.openDownloadPage.pipe(Effect.catchTag("UpdateError", () => Effect.void))
+    }))
+  }, [runtime])
+
+  const handleOpenUpdates = () => {
+    setShowUpdates(true)
+    if (!updateInfo.hasUpdate && !isUpdateBusy(updateInfo.status)) handleCheckUpdates()
+  }
+
+  const handleDismissUpdates = () => {
+    dismissedVersion.current = updateInfo.latestVersion
+    setShowUpdates(false)
+  }
 
   const handleRemoveElement = (id: string) => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const canvasSvc = yield* CanvasService
@@ -163,7 +185,7 @@ export function App() {
   }
 
   const handleClearCanvas = () => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const canvasSvc = yield* CanvasService
@@ -181,7 +203,7 @@ export function App() {
   }
 
   const handleAddSample = () => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const canvasSvc = yield* CanvasService
@@ -207,7 +229,7 @@ export function App() {
 
   const handleIncrement = (delta: number) => {
     setCounterError(null)
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const counterSvc = yield* CounterService
@@ -225,7 +247,7 @@ export function App() {
   }
 
   const handleNextGreeting = () => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const greetingSvc = yield* GreetingService
@@ -243,7 +265,7 @@ export function App() {
   }
 
   const handleCycleTheme = () => {
-    appRuntime
+    runtime
       .runPromise(
         Effect.gen(function* () {
           const themeSvc = yield* ThemeService
@@ -261,7 +283,7 @@ export function App() {
   }
 
   const handleClearHistory = () => {
-    appRuntime.runPromise(
+    runtime.runPromise(
       Effect.gen(function* () {
         const activitySvc = yield* ActivityService
         yield* activitySvc.clear
@@ -271,18 +293,11 @@ export function App() {
     })
   }
 
-  const updateLabel =
-    updateInfo.status === "downloading" || updateInfo.status === "installing"
-      ? "Downloading & verifying…"
-      : updateInfo.status === "checking"
-        ? "Checking..."
-        : updateInfo.status === "ready-to-restart"
-          ? `↻ Restart to v${updateInfo.latestVersion}`
-          : updateInfo.hasUpdate
-            ? `⬇ Update to v${updateInfo.latestVersion}`
-            : updateInfo.status === "up-to-date"
-              ? "Up to date"
-              : "Check Updates"
+  const updateLabel = updateInfo.status === "restarting" ? "Restarting…"
+    : updateInfo.status === "ready-to-restart" ? "Restart to update"
+      : updateInfo.status === "downloading" || updateInfo.status === "installing" ? "Updating…"
+        : updateInfo.status === "checking" ? "Checking…"
+          : updateInfo.hasUpdate ? "Update available" : "Updates"
 
   return (
     <div
@@ -361,7 +376,12 @@ export function App() {
             </text>
           </div>
           <div
-            onClick={handleUpdateAction}
+            role="button"
+            aria-label={updateLabel}
+            testId="update-menu"
+            tabIndex={0}
+            onClick={handleOpenUpdates}
+            onKeyDown={(event) => { if (event.key === "enter" || event.key === "space") handleOpenUpdates() }}
             style={{
               paddingTop: 6,
               paddingBottom: 6,
@@ -382,14 +402,15 @@ export function App() {
               {updateLabel}
             </text>
           </div>
-          {updateInfo.errorMessage && (
-            <text style={{ color: "#fca5a5", fontSize: 11 }}>{updateInfo.errorMessage}</text>
-          )}
         </div>
       </div>
 
+      {showUpdates && <UpdatePanel info={updateInfo} theme={theme}
+        onInstall={handleUpdateAction} onRestart={handleUpdateAction}
+        onCheck={handleCheckUpdates} onDownload={handleDownloadUpdate} onDismiss={handleDismissUpdates} />}
+
       {/* Main: browser canvas hero + slim sidebar */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexGrow: 1 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexGrow: 1, minHeight: 0 }}>
         <BrowserCanvas
           elements={canvasElements}
           theme={theme}
@@ -398,7 +419,7 @@ export function App() {
         />
 
         {/* Sidebar */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 264 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 264, minHeight: 0, overflow: "scroll" }}>
           {/* Canvas controls */}
           <div
             style={{
@@ -560,9 +581,11 @@ export function App() {
 
       {/* Slim footer */}
       <div
+        testId="app-footer"
         style={{
           display: "flex",
           flexDirection: "row",
+          flexShrink: 0,
           justifyContent: "space-between",
           alignItems: "center",
         }}

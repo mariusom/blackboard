@@ -173,8 +173,11 @@ is used. Apple ticket stapling and validation retry explicit network failures up
 five times with increasing delays; invalid tickets and exhausted retries still
 stop publication. See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
-Blackboard checks for updates on startup and every six hours. Click **Update** to
-download and install, then **Restart**. The DMG is for the initial installation;
+Blackboard checks for updates on startup and every six hours. A new release opens
+an update panel with **Download and install**, live working status, retry and DMG
+download options, then **Restart now** or **Restart later**. The **Updates** button
+reopens this panel. Mounted DMGs and development builds show manual download
+instructions. The DMG is for the initial installation;
 the in-app updater downloads `Blackboard-aarch64.app.tar.gz` and its `.sig` from
 the same release. GPUIX verifies this archive against the public key embedded at
 build time before installing it. It preserves the app's Apple signature. See the

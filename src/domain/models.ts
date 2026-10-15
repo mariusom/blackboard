@@ -65,10 +65,12 @@ export const UpdateStatus = Schema.Literals([
   "idle",
   "checking",
   "available",
+  "manual-download",
   "up-to-date",
   "downloading",
   "installing",
   "ready-to-restart",
+  "restarting",
   "error",
 ])
 export type UpdateStatus = typeof UpdateStatus.Type
@@ -81,8 +83,25 @@ export const UpdateInfo = Schema.Struct({
   releaseUrl: Schema.String,
   status: UpdateStatus,
   errorMessage: Schema.NullOr(Schema.String),
+  canInstallAutomatically: Schema.Boolean,
+  installHint: Schema.NullOr(Schema.String),
 })
 export type UpdateInfo = typeof UpdateInfo.Type
+
+export const INITIAL_UPDATE_INFO: UpdateInfo = {
+  currentVersion: APP_VERSION,
+  latestVersion: APP_VERSION,
+  hasUpdate: false,
+  downloadUrl: null,
+  releaseUrl: `https://github.com/${GITHUB_REPO}/releases/latest`,
+  status: "idle",
+  errorMessage: null,
+  canInstallAutomatically: false,
+  installHint: null,
+}
+
+export const isUpdateBusy = (status: UpdateStatus): boolean =>
+  ["checking", "downloading", "installing", "restarting"].includes(status)
 
 export function parseSemVer(versionStr: string): SemVer | null {
   const normalized = versionStr.trim().replace(/^[vV]/, "")

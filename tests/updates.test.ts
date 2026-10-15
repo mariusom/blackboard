@@ -135,7 +135,7 @@ describe("signed application updates", () => {
     }))))
     expect(installs).toBe(1)
     expect(restartedPath).toBe("/Applications/Blackboard.app")
-    expect(state.status).toBe("ready-to-restart")
+    expect(state.status).toBe("restarting")
   })
 
   it("allows a restart retry without reinstalling after relaunch fails", async () => {
@@ -153,6 +153,6 @@ describe("signed application updates", () => {
       if (attempts === 1) throw new Error("launch failed")
     } }))))
     expect(attempts).toBe(2)
-    expect(state.status).toBe("ready-to-restart")
+    expect(state.status).toBe("restarting")
   })
 })

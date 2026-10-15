@@ -193,6 +193,7 @@ export function BrowserCanvas({ elements, theme, url, onRemoveElement }: Browser
         display: "flex",
         flexDirection: "column",
         flexGrow: 1,
+        minHeight: 0,
         backgroundColor: theme.cardBg,
         borderRadius: 12,
         borderWidth: 1,
@@ -246,7 +247,7 @@ export function BrowserCanvas({ elements, theme, url, onRemoveElement }: Browser
       </div>
 
       {/* Viewport — the canvas page itself (light document surface) */}
-      <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, overflow: "scroll" }}>
+      <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0, overflow: "scroll" }}>
         <div
           style={{
             display: "flex",
