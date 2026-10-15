@@ -352,7 +352,7 @@ document.addEventListener("keydown", event => {
 })
 document.addEventListener("keyup", event => { if (event.code === "Space") { space = false; viewport.classList.toggle("hand", tool === "hand") } })
 window.addEventListener("blur", () => { space = false; viewport.classList.toggle("hand", tool === "hand") })
-window.addEventListener("beforeunload", event => { if (editor?.dirty || pendingWrites) { event.preventDefault(); event.returnValue = "" } })
+window.addEventListener("beforeunload", event => { if (window.blackboardHasUnsavedChanges?.()) { event.preventDefault(); event.returnValue = "" } })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-tool]")) button.addEventListener("click", () => { const value = button.dataset.tool; if (value === "select" || value === "hand" || value === "frame") setTool(value) })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-close]")) button.addEventListener("click", () => element<HTMLDialogElement>(button.dataset.close ?? "").close())
 const tokenPanel = createTokenPanel({ workspace: () => state?.workspace, request: api, refresh, copy, notify: toast })
@@ -378,7 +378,7 @@ element("workspace-name").addEventListener("change", () => perform(async () => {
 let updateBusy = false
 async function updateAction(action: "check" | "install" | "restart" | "download" | "replay") {
   if (updateBusy) return
-  if (action === "restart" && (editor?.dirty || pendingWrites)) { toast("Save your canvas draft before restarting."); return }
+  if (action === "restart" && window.blackboardHasUnsavedChanges?.()) { toast("Save your drafts before restarting."); return }
   updateBusy = true; renderUpdate()
   try { await api(`updates/${action}`, {}); if (action === "replay") await api("updates/check", {}) } finally { updateBusy = false; await refresh() }
 }

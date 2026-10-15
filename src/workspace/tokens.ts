@@ -7,6 +7,7 @@ export const DesignToken = Schema.Struct({
   name: TokenName,
   type: TokenType,
   value: Schema.String.check(Schema.isBetweenLength(1, 240)),
+  category: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 60))),
   description: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(240))),
 })
 export interface DesignToken extends Schema.Schema.Type<typeof DesignToken> {}
@@ -20,6 +21,18 @@ export const DeleteToken = Schema.Struct({ name: TokenName, expectedRevision: Sc
 export const TOKEN_LABELS: Record<TokenType, string> = {
   color: "Colors", spacing: "Spacing", "font-size": "Font sizes", "font-family": "Font families",
   "font-weight": "Font weights", radius: "Radii", number: "Numbers",
+}
+/** Categories organize tokens independently of their CSS value type. */
+export function groupTokens(tokens: readonly DesignToken[], query = ""): readonly { label: string; tokens: readonly DesignToken[] }[] {
+  const groups = new Map<string, DesignToken[]>(Object.values(TOKEN_LABELS).map(label => [label, []]))
+  const filter = query.trim().toLowerCase()
+  for (const token of tokens) {
+    const label = token.category?.trim() || TOKEN_LABELS[token.type]
+    if (filter && !`${token.name} ${token.value} ${token.description ?? ""} ${label}`.toLowerCase().includes(filter)) continue
+    const group = groups.get(label) ?? []
+    group.push(token); groups.set(label, group)
+  }
+  return [...groups].filter(([, tokens]) => tokens.length).map(([label, tokens]) => ({ label, tokens }))
 }
 export const DEFAULT_TOKENS: readonly DesignToken[] = [
   { name: "color-surface", type: "color", value: "#f6f4ef", description: "Canvas background" },

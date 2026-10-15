@@ -1,5 +1,5 @@
 import type { Workspace } from "../workspace/model"
-import { DesignToken, TOKEN_LABELS, TokenCollection, TokenType, resolvedTokenValue, tokenReferences, tokenVariable, tokensCSS } from "../workspace/tokens"
+import { DesignToken, TOKEN_LABELS, TokenCollection, TokenType, groupTokens, resolvedTokenValue, tokenReferences, tokenVariable, tokensCSS } from "../workspace/tokens"
 import { Schema } from "effect"
 
 const get = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -7,6 +7,7 @@ const get = <T extends HTMLElement = HTMLElement>(id: string): T => {
   return node as T
 }
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c))
+const EXAMPLES: Record<TokenType, string> = { color: "#303d2b", spacing: "16px", "font-size": "16px", "font-family": "Georgia, serif", "font-weight": "500", radius: "8px", number: "1.5" }
 export function createTokenPanel(options: {
   readonly workspace: () => Workspace | undefined
   readonly request: (path: string, body: unknown) => Promise<unknown>
@@ -14,11 +15,14 @@ export function createTokenPanel(options: {
   readonly copy: (text: string) => Promise<void>
   readonly notify: (message: string) => void
 }) {
-  const dialog = get<HTMLDialogElement>("tokens-dialog")
+  const panel = get("tokens-sidebar")
+  const search = get<HTMLInputElement>("token-search")
   const form = get<HTMLFormElement>("token-form")
   const name = get<HTMLInputElement>("token-name")
   const type = get<HTMLSelectElement>("token-type")
   const value = get<HTMLInputElement>("token-value")
+  const category = get<HTMLInputElement>("token-category")
+  const collapsed = new Set<string>()
   const description = get<HTMLTextAreaElement>("token-description")
   let draft: { name: string | null; revision: number; dirty: boolean } | null = null
   let saving = false
@@ -29,6 +33,7 @@ export function createTokenPanel(options: {
   })
   function controls() {
     const workspace = options.workspace(); if (!workspace) return
+    get("tokens-button").classList.toggle("has-draft", Boolean(draft?.dirty))
     const used = usage(draft?.name ?? "", workspace)
     get<HTMLButtonElement>("token-save").disabled = saving || !draft?.dirty
     get<HTMLButtonElement>("token-delete").disabled = saving || !draft?.name || Boolean(used.boards || used.aliases)
@@ -41,6 +46,7 @@ export function createTokenPanel(options: {
   function load(token?: DesignToken) {
     const workspace = options.workspace(); if (!workspace) return
     draft = { name: token?.name ?? null, revision: workspace.tokensRevision, dirty: false }
+    category.value = token?.category ?? ""
     name.value = token?.name ?? ""; name.readOnly = Boolean(token)
     type.value = token?.type ?? "color"; value.value = token?.value ?? "#303d2b"; description.value = token?.description ?? ""
     get("token-form-title").textContent = token ? "Edit token" : "New token"
@@ -51,35 +57,68 @@ export function createTokenPanel(options: {
     const workspace = options.workspace(); if (!workspace) return
     get("token-count").textContent = `${workspace.tokens.length} shared values`
     const list = get("token-list"); list.replaceChildren()
-    for (const [kind, label] of Object.entries(TOKEN_LABELS)) {
-      const tokens = workspace.tokens.filter(token => token.type === kind); if (!tokens.length) continue
-      const heading = document.createElement("h3"); heading.textContent = label; list.append(heading)
+    const suggestions = get<HTMLDataListElement>("token-categories"); suggestions.replaceChildren()
+    for (const label of new Set(workspace.tokens.flatMap(token => token.category ? [token.category] : []))) {
+      const option = document.createElement("option"); option.value = label; suggestions.append(option)
+    }
+    for (const { label, tokens } of groupTokens(workspace.tokens, search.value)) {
+      const group = document.createElement("details"); group.className = "token-group"
+      group.open = Boolean(search.value.trim()) || !collapsed.has(label)
+      const summary = document.createElement("summary")
+      const title = document.createElement("span"); title.textContent = label
+      const count = document.createElement("span"); count.className = "token-group-count"; count.textContent = String(tokens.length)
+      const add = document.createElement("button"); add.type = "button"; add.className = "token-group-add"; add.textContent = "+"; add.setAttribute("aria-label", `Add token to ${label}`)
+      add.addEventListener("click", event => {
+        event.preventDefault(); event.stopPropagation()
+        if (!mayDiscard()) return
+        load()
+        const kind = Object.entries(TOKEN_LABELS).find(([, name]) => name === label)?.[0]
+        if (kind) { const tokenType = Schema.decodeUnknownSync(TokenType)(kind); type.value = tokenType; value.value = EXAMPLES[tokenType] }
+        else category.value = label
+        showDetail(true); render(); name.focus()
+      })
+      summary.append(title, count, add); group.append(summary)
+      group.addEventListener("toggle", () => { if (group.isConnected && !search.value.trim()) { if (group.open) collapsed.delete(label); else collapsed.add(label) } })
+      list.append(group)
       for (const token of tokens) {
         const button = document.createElement("button"); button.className = "token-row"; button.type = "button"
         button.classList.toggle("selected", token.name === draft?.name)
         button.setAttribute("aria-label", `${token.name}, ${token.value}`)
         button.innerHTML = `<span class="token-swatch">${token.type === "color" ? "" : token.type.startsWith("font") ? "Aa" : "↔"}</span><span class="token-row-text"><strong>${escape(token.name)}</strong><span>${escape(token.value)}</span></span>`
         if (token.type === "color") { const swatch = button.querySelector<HTMLElement>(".token-swatch"); if (swatch) swatch.style.backgroundColor = resolvedTokenValue(token, workspace.tokens) }
-        button.addEventListener("click", () => { if (mayDiscard()) { load(token); render() } })
-        list.append(button)
+        button.addEventListener("click", () => { if (mayDiscard()) { load(token); showDetail(true); render(); value.focus() } })
+        group.append(button)
       }
     }
-    if (!workspace.tokens.length) { const empty = document.createElement("p"); empty.className = "token-empty"; empty.textContent = "Create a value to reuse across your canvases."; list.append(empty) }
+    if (!list.childElementCount) { const empty = document.createElement("p"); empty.className = "token-empty"; empty.textContent = search.value ? "No matching tokens." : "Create a value to reuse across your canvases."; list.append(empty) }
     controls()
   }
   function update() {
-    if (!dialog.open) return
+    if (panel.hidden) return
     const workspace = options.workspace(); if (!workspace) return
     if (draft && !draft.dirty) load(workspace.tokens.find(token => token.name === draft?.name))
     render()
   }
-  function close() { if (mayDiscard()) { draft = null; dialog.close() } }
+  function showDetail(detail: boolean) {
+    form.hidden = !detail; get("token-library").hidden = detail
+  }
+  function setExpanded(expanded: boolean) {
+    panel.hidden = !expanded
+    document.body.classList.toggle("tokens-visible", expanded)
+    get("tokens-button").setAttribute("aria-expanded", String(expanded))
+    if (expanded) update()
+  }
+  function back() {
+    if (!mayDiscard()) return
+    draft = null; showDetail(false); error(""); render(); search.focus()
+  }
+  function close() { setExpanded(false); get("tokens-button").focus() }
   async function save() {
     const workspace = options.workspace(); if (!workspace || !draft || saving) return
     if (!form.reportValidity()) return
     saving = true; controls(); error("")
     try {
-      const token = Schema.decodeUnknownSync(DesignToken)({ name: name.value.trim(), type: type.value, value: value.value.trim(), ...(description.value.trim() ? { description: description.value.trim() } : {}) })
+      const token = Schema.decodeUnknownSync(DesignToken)({ name: name.value.trim(), type: type.value, value: value.value.trim(), ...(category.value.trim() ? { category: category.value.trim() } : {}), ...(description.value.trim() ? { description: description.value.trim() } : {}) })
       if (!draft.name && workspace.tokens.some(existing => existing.name === token.name)) throw new Error("A token with that name already exists. Select it to edit its value.")
       const saved = Schema.decodeUnknownSync(TokenCollection)(await options.request("tokens", { tokens: [token], expectedRevision: draft.revision }))
       draft.dirty = false; await options.refresh(); load(saved.tokens.find(candidate => candidate.name === token.name)); render(); options.notify("Token saved. Linked canvases are updated.")
@@ -88,28 +127,41 @@ export function createTokenPanel(options: {
   }
   form.addEventListener("submit", event => { event.preventDefault(); void save() })
   form.addEventListener("input", () => { if (draft) draft.dirty = true; controls() })
-  dialog.addEventListener("keydown", event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); void save() } })
-  dialog.addEventListener("cancel", event => { event.preventDefault(); close() })
+  panel.addEventListener("keydown", event => {
+    // Canvas shortcuts must never act on a focused token control.
+    event.stopPropagation()
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !form.hidden) { event.preventDefault(); void save() }
+    if (event.key === "Escape") { event.preventDefault(); if (!form.hidden) back(); else close() }
+  })
   get("tokens-button").addEventListener("click", () => {
-    const workspace = options.workspace(); if (!workspace) return
-    load(workspace.tokens[0]); render(); dialog.showModal()
+    setExpanded(Boolean(panel.hidden))
+    if (!panel.hidden) { if (form.hidden) search.focus(); else value.focus() }
   })
   get("close-tokens").addEventListener("click", close)
-  get("token-add").addEventListener("click", () => { if (mayDiscard()) { load(); render(); name.focus() } })
+  get("token-back").addEventListener("click", back)
+  get("token-add-category").addEventListener("click", () => {
+    if (!mayDiscard()) return
+    load(); showDetail(true); render(); category.focus()
+  })
+  search.addEventListener("input", render)
+  get("token-add").addEventListener("click", () => { if (mayDiscard()) { load(); showDetail(true); render(); name.focus() } })
   get("token-copy-reference").addEventListener("click", () => { void options.copy(tokenVariable(name.value.trim() || "token-name")).then(() => options.notify("CSS reference copied")).catch(cause => error(String(cause))) })
   get("token-copy-css").addEventListener("click", () => { const workspace = options.workspace(); if (workspace) void options.copy(tokensCSS(workspace.tokens)).then(() => options.notify("Token CSS copied")).catch(cause => error(String(cause))) })
   get("token-color").addEventListener("input", () => { value.value = get<HTMLInputElement>("token-color").value; if (draft) draft.dirty = true; controls() })
   type.addEventListener("change", () => {
-    const examples: Record<TokenType, string> = { color: "#303d2b", spacing: "16px", "font-size": "16px", "font-family": "Georgia, serif", "font-weight": "500", radius: "8px", number: "1.5" }
-    value.placeholder = examples[Schema.decodeUnknownSync(TokenType)(type.value)]; controls()
+    const tokenType = Schema.decodeUnknownSync(TokenType)(type.value)
+    value.placeholder = EXAMPLES[tokenType]
+    if (!draft?.name && Object.values(EXAMPLES).includes(value.value)) value.value = EXAMPLES[tokenType]
+    controls()
   })
   get("token-delete").addEventListener("click", () => {
     if (!draft?.name || saving || !mayDiscard()) return
     const removed = draft.name, revision = draft.revision
     saving = true; controls()
     void options.request("tokens/delete", { name: removed, expectedRevision: revision }).then(async () => {
-      draft = null; await options.refresh(); load(); render(); options.notify(`Token '${removed}' deleted`)
+      draft = null; await options.refresh(); showDetail(false); render(); options.notify(`Token '${removed}' deleted`)
     }).catch(cause => error(cause instanceof Error ? cause.message : "Could not delete the token.")).finally(() => { saving = false; controls() })
   })
+  setExpanded(true)
   return { update, hasUnsavedChanges: () => Boolean(draft?.dirty) }
 }

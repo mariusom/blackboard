@@ -106,7 +106,10 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
         yield* checkTokenRevision(current, value.expectedRevision)
         if (new Set(value.tokens.map(token => token.name)).size !== value.tokens.length) return yield* new WorkspaceError({ code: "invalid", message: "Each token name must be unique." })
         const merged = new Map(current.tokens.map(token => [token.name, token]))
-        for (const token of value.tokens) merged.set(token.name, { ...token, value: token.value.trim() })
+        for (const token of value.tokens) {
+          const { category, ...fields } = token
+          merged.set(token.name, { ...fields, value: token.value.trim(), ...(category?.trim() ? { category: category.trim() } : {}) })
+        }
         const tokens = yield* decode(TokenList, [...merged.values()])
         const error = tokenValidationError(tokens)
         if (error) return yield* new WorkspaceError({ code: "invalid", message: error })

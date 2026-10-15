@@ -25,7 +25,7 @@ Invalid saved files are preserved and reported rather than replaced with starter
 
 ## Shared design tokens
 
-Open **Tokens** to create and edit workspace-wide colors, spacing, font sizes, font families, font weights, radii, and numbers. Reference a token in canvas CSS with `var(--color-brand)` or copy its reference from the library. Saving a value updates every linked canvas and open preview. Exports embed the token CSS so they work independently.
+Use the **Tokens** sidebar to create and edit workspace-wide colors, spacing, font sizes, font families, font weights, radii, and numbers. The sidebar opens beside the canvas and can be collapsed with the Tokens button. Search the library, expand or collapse its categories, select a token to edit it, and use **All tokens** to return. Use **New token** or a category’s **+** button to add values. Choose **New category** or type a new category name while editing a token; the category is saved with its first token. Categories can contain different token types. Collapsing preserves an unsaved token draft. Reference a token in canvas CSS with `var(--color-brand)` or copy its reference from the library. Saving a value updates every linked canvas and open preview. Exports embed the token CSS so they work independently.
 
 Token names are stable lowercase CSS names. Values support hex colors, CSS lengths (`px`, `rem`, `em`, `%`), font families and weights, numbers, and aliases such as `var(--color-brand)`. Aliases must refer to a compatible type and cannot form a cycle. Tokens used by saved canvases or other tokens cannot be deleted until their references are replaced.
 

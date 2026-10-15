@@ -28,7 +28,7 @@ export const CanvasListTokens = Tool.make("canvas_list_tokens", {
   success: TokenCollection, failure: WorkspaceError,
 })
 export const CanvasUpsertTokens = Tool.make("canvas_upsert_tokens", {
-  description: "Create or update shared design tokens by name, preserving all unrelated tokens. Names are lowercase kebab-case (color-brand, space-md). Colors use hex; dimensions use px/rem/em/percent; aliases use var(--existing-token). Read the library first and send expectedRevision to protect concurrent edits. Create reusable tokens before generating the HTML that references them.",
+  description: "Create or update shared design tokens by name, preserving all unrelated tokens. Names are lowercase kebab-case (color-brand, space-md). An optional category groups tokens in the sidebar independently of their value type. Colors use hex; dimensions use px/rem/em/percent; aliases use var(--existing-token). Read the library first and send expectedRevision to protect concurrent edits. Create reusable tokens before generating the HTML that references them.",
   parameters: UpsertTokens, success: TokenCollection, failure: WorkspaceError,
 })
 export const CanvasDeleteToken = Tool.make("canvas_delete_token", {

@@ -6,9 +6,9 @@ import { join } from "node:path"
 import { WorkspaceService } from "../src/workspace/WorkspaceService"
 import { exportDocument, previewDocument } from "../src/workspace/model"
 import { INITIAL_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from "../src/workspace/templates"
-import { DEFAULT_TOKENS, DesignToken, resolvedTokenValue, tokenReferences, tokenValidationError, tokensCSS } from "../src/workspace/tokens"
+import { DEFAULT_TOKENS, DesignToken, groupTokens, resolvedTokenValue, tokenReferences, tokenValidationError, tokensCSS } from "../src/workspace/tokens"
 
-const brand: DesignToken = { name: "brand", type: "color", value: "#336699" }
+const brand: DesignToken = { name: "brand", type: "color", value: "#336699", category: "Brand" }
 const alias: DesignToken = { name: "action", type: "color", value: "var(--brand)" }
 const empty = { version: 2 as const, name: "Test", boards: [], tokens: [], tokensRevision: 0 }
 async function withFile(run: (path: string) => Promise<void>) {
@@ -52,6 +52,7 @@ it("persists merged tokens with revisions and rejects concurrent stale edits ato
     expect(outcomes.filter(result => result._tag === "Failure")).toHaveLength(1)
     const saved = await runtime.runPromise(service.getTokens)
     expect(saved.revision).toBe(2)
+    expect(saved.tokens.find(token => token.name === "brand")?.category).toBe("Brand")
     expect(saved.tokens.find(token => token.name === "action")).toEqual(alias)
     const invalid = await runtime.runPromise(Effect.result(service.upsertTokens({ tokens: [{ ...brand, value: "var(--action)" }], expectedRevision: 2 })))
     expect(invalid._tag).toBe("Failure")
@@ -123,4 +124,16 @@ it("embeds shared values and aliases in both sandboxed previews and standalone e
   expect(preview).toContain("default-src 'none'")
   expect(exported).toContain("A &lt;/title&gt; &amp; B")
   expect(exported).toContain("data-blackboard-tokens")
+})
+
+
+it("groups custom categories across types and searches category names without changing CSS", () => {
+  const gap: DesignToken = { name: "gap", type: "spacing", value: "16px", category: "Brand" }
+  const groups = groupTokens([brand, gap, alias])
+  expect(groups.find(group => group.label === "Brand")?.tokens).toEqual([brand, gap])
+  expect(groups.find(group => group.label === "Colors")?.tokens).toEqual([alias])
+  expect(groupTokens([brand, gap, alias], "brand").find(group => group.label === "Brand")?.tokens).toHaveLength(2)
+  expect(groupTokens([brand, gap, alias], "missing")).toEqual([])
+  expect(tokensCSS([brand, gap])).not.toContain("Brand")
+  expect(() => Schema.decodeSync(DesignToken)({ ...brand, category: "x".repeat(61) })).toThrow()
 })
