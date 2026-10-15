@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vitest/config"
+import { defineConfig, type Plugin } from 'vitest/config';
 
 /**
  * `src/workspace/server.ts` imports its HTML and CSS with Bun's text loader
@@ -7,17 +7,17 @@ import { defineConfig, type Plugin } from "vitest/config"
  * the source keeps the Bun syntax the app ships with.
  */
 const textAssets: Plugin = {
-  name: "blackboard-text-assets",
-  enforce: "pre",
+  name: 'blackboard-text-assets',
+  enforce: 'pre',
   transform(code, id) {
-    if (!id.endsWith(".ts") || !code.includes('with { type: "text" }')) return null
+    if (!id.endsWith('.ts') || !code.includes('type:') || !code.includes('import')) return null;
     const rewritten = code.replace(
-      /import\s+(\w+)\s+from\s+"([^"]+\.(?:html|css))"[ \t]*with[ \t]*\{[ \t]*type:[ \t]*"text"[ \t]*\}/g,
-      'import $1 from "$2?raw"'
-    )
-    return rewritten === code ? null : { code: rewritten, map: null }
-  }
-}
+      /import\s+(\w+)\s+from\s+(["'])([^"']+\.(?:html|css))\2[ \t]*with[ \t]*\{[ \t]*type:[ \t]*["']text["'][ \t]*\}/g,
+      'import $1 from $2$3?raw$2',
+    );
+    return rewritten === code ? null : { code: rewritten, map: null };
+  },
+};
 
 /**
  * The workspace server builds its browser bundle with `Bun.build` and serves
@@ -27,7 +27,7 @@ const textAssets: Plugin = {
 export default defineConfig({
   plugins: [textAssets],
   test: {
-    environment: "node",
-    include: ["tests/**/*.test.ts"]
-  }
-})
+    environment: 'node',
+    include: ['tests/**/*.test.ts'],
+  },
+});
