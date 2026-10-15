@@ -254,7 +254,7 @@ async function historyStep(redo = false) {
     const { id: expectedId, revision: expectedRevision, ...expectedFields } = expected
     if (JSON.stringify(currentFields) !== JSON.stringify(expectedFields)) throw new Error("This canvas changed elsewhere. Undo is paused to preserve those changes.")
   }
-  if (!desired) { await api(`boards/${encodeURIComponent(entry.id)}/delete`, { expectedRevision: existing?.revision }) }
+  if (!desired) { if (existing) await api(`boards/${encodeURIComponent(entry.id)}/delete`, { expectedRevision: existing.revision }) }
   else {
     const { id, revision, ...fields } = desired
     const after = Schema.decodeUnknownSync(Board)(await api(existing ? `boards/${encodeURIComponent(entry.id)}` : "boards", existing ? { ...fields, expectedRevision: existing.revision } : { ...fields, id: entry.id }))

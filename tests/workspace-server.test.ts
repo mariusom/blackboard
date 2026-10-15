@@ -147,13 +147,15 @@ it("guards canvas deletion behind the revision the agent last read", () => fixtu
       const created = yield* connection.create({ name: "Agent design", html: "<h1>One</h1>" })
       const updated = yield* connection.update(created.id, { html: "<h1>Two</h1>", expectedRevision: created.revision })
       const stale = yield* Effect.result(connection.remove(created.id, created.revision))
-      const missing = yield* Effect.result(connection.remove("does-not-exist"))
+      const missing = yield* Effect.result(connection.remove("does-not-exist", 0))
+      const guard = yield* Effect.promise(async () => (await fetch(`${server.origin}/api/boards/${created.id}/delete`, { method: "POST", headers: headers(server.token), body: "{}" })).status)
       yield* connection.remove(created.id, updated.revision)
-      return { stale, missing, boards: (yield* connection.list).boards.length }
+      return { stale, missing, guard, boards: (yield* connection.list).boards.length }
     }))
     expect(result.stale._tag).toBe("Failure")
     if (result.stale._tag === "Failure") expect(result.stale.failure.code).toBe("conflict")
     expect(result.missing._tag).toBe("Failure")
+    expect(result.guard).toBe(400)
     expect(result.boards).toBe(0)
   } finally { await runtime.dispose() }
 }))

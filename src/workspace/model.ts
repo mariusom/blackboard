@@ -55,7 +55,7 @@ export const BoardPatch = Schema.Struct({
   expectedRevision: Schema.optionalKey(Schema.Int),
 })
 export interface BoardPatch extends Schema.Schema.Type<typeof BoardPatch> {}
-export const DeleteBoard = Schema.Struct({ expectedRevision: Schema.optionalKey(Schema.Int) })
+export const DeleteBoard = Schema.Struct({ expectedRevision: Schema.Int })
 
 export const LegacyWorkspace = Schema.Struct({
   version: Schema.Literal(1),

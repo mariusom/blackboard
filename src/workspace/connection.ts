@@ -16,7 +16,7 @@ export class CanvasConnection extends Context.Service<CanvasConnection, {
   readonly search: (query: string) => Effect.Effect<readonly BoardSummary[], WorkspaceError>
   readonly create: (input: CreateBoard) => Effect.Effect<Board, WorkspaceError>
   readonly update: (id: string, patch: BoardPatch) => Effect.Effect<Board, WorkspaceError>
-  readonly remove: (id: string, expectedRevision?: number) => Effect.Effect<void, WorkspaceError>
+  readonly remove: (id: string, expectedRevision: number) => Effect.Effect<void, WorkspaceError>
   readonly tokens: Effect.Effect<TokenCollection, WorkspaceError>
   readonly upsertTokens: (input: UpsertTokens) => Effect.Effect<TokenCollection, WorkspaceError>
   readonly deleteToken: (name: string, expectedRevision?: number) => Effect.Effect<TokenCollection, WorkspaceError>
@@ -44,7 +44,7 @@ export class CanvasConnection extends Context.Service<CanvasConnection, {
       search: Effect.fn("CanvasConnection.search")((query: string) => request(`/api/boards?query=${encodeURIComponent(query)}`, Schema.Array(BoardSummary))),
       create: Effect.fn("CanvasConnection.create")((input: CreateBoard) => request("/api/boards", Board, input)),
       update: Effect.fn("CanvasConnection.update")((id: string, patch: BoardPatch) => request(`/api/boards/${encodeURIComponent(id)}`, Board, patch)),
-      remove: Effect.fn("CanvasConnection.remove")((id: string, expectedRevision?: number) => request(`/api/boards/${encodeURIComponent(id)}/delete`, Schema.Unknown, expectedRevision === undefined ? {} : { expectedRevision }).pipe(Effect.asVoid)),
+      remove: Effect.fn("CanvasConnection.remove")((id: string, expectedRevision: number) => request(`/api/boards/${encodeURIComponent(id)}/delete`, Schema.Unknown, { expectedRevision }).pipe(Effect.asVoid)),
       tokens: request("/api/tokens", TokenCollection),
       upsertTokens: Effect.fn("CanvasConnection.upsertTokens")((input: UpsertTokens) => request("/api/tokens", TokenCollection, input)),
       deleteToken: Effect.fn("CanvasConnection.deleteToken")((name: string, expectedRevision?: number) => request("/api/tokens/delete", TokenCollection, { name, expectedRevision })),

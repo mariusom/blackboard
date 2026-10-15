@@ -20,8 +20,8 @@ export const CanvasUpdateBoard = Tool.make("canvas_update_board", {
   parameters: Schema.Struct({ id: Schema.String, patch: BoardPatch }), success: Board, failure: WorkspaceError,
 })
 export const CanvasDeleteBoard = Tool.make("canvas_delete_board", {
-  description: "Delete one canvas by ID when the user requests its removal. Read its revision first and pass expectedRevision so a canvas that changed since you read it is not deleted by mistake.",
-  parameters: Schema.Struct({ id: Schema.String, expectedRevision: Schema.optionalKey(Schema.Int) }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
+  description: "Delete one canvas by ID when the user requests its removal. Read its revision first and pass expectedRevision; a canvas that changed since you read it is not deleted by mistake.",
+  parameters: Schema.Struct({ id: Schema.String, expectedRevision: Schema.Int }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
 })
 export const CanvasSearch = Tool.make("canvas_search", {
   description: "Find canvases by name or HTML content. Returns matching canvases with their ids, positions, sizes and revisions, but not their full HTML. Read a match with canvas_get_board before editing it.",
