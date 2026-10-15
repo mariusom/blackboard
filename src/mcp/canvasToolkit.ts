@@ -20,8 +20,8 @@ export const CanvasUpdateBoard = Tool.make("canvas_update_board", {
   parameters: Schema.Struct({ id: Schema.String, patch: BoardPatch }), success: Board, failure: WorkspaceError,
 })
 export const CanvasDeleteBoard = Tool.make("canvas_delete_board", {
-  description: "Delete one canvas by ID when the user requests its removal.",
-  parameters: Schema.Struct({ id: Schema.String }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
+  description: "Delete one canvas by ID when the user requests its removal. Read its revision first and pass expectedRevision so a canvas that changed since you read it is not deleted by mistake.",
+  parameters: Schema.Struct({ id: Schema.String, expectedRevision: Schema.optionalKey(Schema.Int) }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
 })
 export const CanvasListTokens = Tool.make("canvas_list_tokens", {
   description: "Read the shared design-token library and its revision. Reuse these values in every canvas as CSS var(--token-name). Tokens include colors, spacing, typography and radii; linked canvases and HTML exports update together.",

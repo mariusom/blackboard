@@ -84,6 +84,27 @@ it("keeps update download progress and restart actions functional through the ne
   }, { checkUpdate: async () => ({ version: "9.9.9", format: "app", downloadUrl: "https://example.com/update.app.tar.gz", downloadAndInstall: async () => { started.resolve(); await finish.promise } }), relaunch: async () => { restarts++ } })
 })
 
+it("guards canvas deletion behind the revision the agent last read", () => fixture(async (server, root) => {
+  const discovery = join(root, "runtime.json")
+  await writeFile(discovery, JSON.stringify({ origin: server.origin, token: server.token }))
+  const runtime = ManagedRuntime.make(CanvasConnection.layer.pipe(Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ BLACKBOARD_CONNECTION_FILE: discovery })))))
+  try {
+    const result = await runtime.runPromise(Effect.gen(function* () {
+      const connection = yield* CanvasConnection
+      const created = yield* connection.create({ name: "Agent design", html: "<h1>One</h1>" })
+      const updated = yield* connection.update(created.id, { html: "<h1>Two</h1>", expectedRevision: created.revision })
+      const stale = yield* Effect.result(connection.remove(created.id, created.revision))
+      const missing = yield* Effect.result(connection.remove("does-not-exist"))
+      yield* connection.remove(created.id, updated.revision)
+      return { stale, missing, boards: (yield* connection.list).boards.length }
+    }))
+    expect(result.stale._tag).toBe("Failure")
+    if (result.stale._tag === "Failure") expect(result.stale.failure.code).toBe("conflict")
+    expect(result.missing._tag).toBe("Failure")
+    expect(result.boards).toBe(0)
+  } finally { await runtime.dispose() }
+}))
+
 it("serves actual MCP tools over stdio and writes through to the open desktop workspace", () => fixture(async (server, root) => {
   const path = join(root, "runtime.json")
   await writeFile(path, JSON.stringify({ origin: server.origin, token: server.token }))

@@ -16,7 +16,7 @@ const CanvasHandlersLive = CanvasToolkit.toLayer(Effect.gen(function* () {
     }),
     [CanvasCreateBoard.name]: input => connection.create(input),
     [CanvasUpdateBoard.name]: ({ id, patch }) => connection.update(id, patch),
-    [CanvasDeleteBoard.name]: ({ id }) => connection.remove(id).pipe(Effect.as({ removedId: id })),
+    [CanvasDeleteBoard.name]: ({ id, expectedRevision }) => connection.remove(id, expectedRevision).pipe(Effect.as({ removedId: id })),
     [CanvasListTokens.name]: () => connection.tokens,
     [CanvasUpsertTokens.name]: input => connection.upsertTokens(input),
     [CanvasDeleteToken.name]: ({ name, expectedRevision }) => connection.deleteToken(name, expectedRevision),
