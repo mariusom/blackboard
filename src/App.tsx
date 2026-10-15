@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react"
-import { Effect } from "effect"
+import { Effect, Schedule } from "effect"
 import { appRuntime } from "./services/AppRuntime"
 import { GreetingService } from "./services/GreetingService"
 import { CounterService } from "./services/CounterService"
@@ -118,8 +118,30 @@ export function App() {
 
   useEffect(() => {
     refreshState()
-    handleCheckUpdates()
+    const controller = new AbortController()
+    appRuntime.runPromise(
+      Effect.sync(handleCheckUpdates).pipe(Effect.repeat(Schedule.spaced("6 hours"))),
+      { signal: controller.signal },
+    ).catch(() => { /* Unmount interrupts the polling schedule. */ })
+    return () => controller.abort()
   }, [refreshState, handleCheckUpdates])
+
+  const handleUpdateAction = useCallback(() => {
+    if (["checking", "downloading", "installing"].includes(updateInfo.status)) return
+    if (updateInfo.status !== "ready-to-restart" && !updateInfo.hasUpdate) {
+      handleCheckUpdates()
+      return
+    }
+    const restarting = updateInfo.status === "ready-to-restart"
+    if (!restarting) setUpdateInfo((info) => ({ ...info, status: "downloading", errorMessage: null }))
+    appRuntime.runPromise(Effect.gen(function* () {
+      const updates = yield* UpdateService
+      yield* (restarting ? updates.restartApp : updates.installUpdate).pipe(
+        Effect.catchTag("UpdateError", () => Effect.void),
+      )
+      return yield* updates.getUpdateState
+    })).then(setUpdateInfo)
+  }, [updateInfo.status, updateInfo.hasUpdate, handleCheckUpdates])
 
   const handleRemoveElement = (id: string) => {
     appRuntime
@@ -250,15 +272,17 @@ export function App() {
   }
 
   const updateLabel =
-    updateInfo.status === "checking"
-      ? "Checking..."
-      : updateInfo.status === "available"
-        ? `⬇ Update to v${updateInfo.latestVersion}`
+    updateInfo.status === "downloading" || updateInfo.status === "installing"
+      ? "Downloading & verifying…"
+      : updateInfo.status === "checking"
+        ? "Checking..."
         : updateInfo.status === "ready-to-restart"
           ? `↻ Restart to v${updateInfo.latestVersion}`
-          : updateInfo.status === "up-to-date"
-            ? "Up to date"
-            : "Check Updates"
+          : updateInfo.hasUpdate
+            ? `⬇ Update to v${updateInfo.latestVersion}`
+            : updateInfo.status === "up-to-date"
+              ? "Up to date"
+              : "Check Updates"
 
   return (
     <div
@@ -337,7 +361,7 @@ export function App() {
             </text>
           </div>
           <div
-            onClick={handleCheckUpdates}
+            onClick={handleUpdateAction}
             style={{
               paddingTop: 6,
               paddingBottom: 6,
@@ -358,6 +382,9 @@ export function App() {
               {updateLabel}
             </text>
           </div>
+          {updateInfo.errorMessage && (
+            <text style={{ color: "#fca5a5", fontSize: 11 }}>{updateInfo.errorMessage}</text>
+          )}
         </div>
       </div>
 

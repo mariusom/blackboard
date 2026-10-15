@@ -1,5 +1,6 @@
 import { createRequire } from "node:module"
 import * as fs from "node:fs"
+import { execFileSync } from "node:child_process"
 import { type BunPlugin } from "bun"
 
 // Candidate platform packages for @gpuix/native's NAPI-RS addon, keyed by
@@ -44,7 +45,19 @@ function resolveNativeAddonPath(): string {
   )
 }
 
-const addonPath = resolveNativeAddonPath()
+let addonPath = resolveNativeAddonPath()
+// Embedded native code must carry the same Developer ID signature as the host.
+// Copy it first so the package manager's shared store is never modified.
+if (process.platform === "darwin" && process.env.APPLE_SIGNING_IDENTITY) {
+  fs.mkdirSync("dist", { recursive: true })
+  const signedAddonPath = `${process.cwd()}/dist/gpuix.node`
+  fs.copyFileSync(addonPath, signedAddonPath)
+  execFileSync("/usr/bin/codesign", [
+    "--force", "--timestamp", "--options", "runtime",
+    "--sign", process.env.APPLE_SIGNING_IDENTITY, signedAddonPath,
+  ], { stdio: "inherit" })
+  addonPath = signedAddonPath
+}
 console.log(`[gpuix-native-embed] resolved native addon: ${addonPath}`)
 
 const gpuixNativeEmbed: BunPlugin = {
@@ -75,6 +88,9 @@ const gpuixNativeEmbed: BunPlugin = {
 
 const result = await Bun.build({
   entrypoints: ["src/main.tsx"],
+  define: {
+    BLACKBOARD_UPDATER_PUBLIC_KEY: JSON.stringify(process.env.UPDATER_PUBLIC_KEY ?? ""),
+  },
   compile: {
     outfile: "dist/blackboard",
   },

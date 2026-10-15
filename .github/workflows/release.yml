@@ -4,124 +4,133 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: 'SemVer release bump type'
+        description: SemVer release bump type
         required: true
-        default: 'patch'
+        default: patch
         type: choice
-        options:
-          - patch
-          - minor
-          - major
+        options: [patch, minor, major]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-macos
+  cancel-in-progress: false
+
 jobs:
   release-macos:
-    runs-on: macos-latest
-
+    # @gpuix/native 0.10.0 publishes a macOS Apple Silicon binary only.
+    runs-on: macos-15
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    timeout-minutes: 90
+    env:
+      UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Setup pnpm (reads pnpm@12.11.2 from package.json#packageManager)
+      - name: Validate release credentials
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_TEAM_ID APPLE_ID APPLE_APP_SPECIFIC_PASSWORD CARGO_PACKAGER_SIGN_PRIVATE_KEY CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD UPDATER_PUBLIC_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required release setting: $name"
+              exit 1
+            fi
+          done
+
+      - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js for pnpm
         uses: actions/setup-node@v7
         with:
           node-version: '22'
-          cache: 'pnpm'
+          cache: pnpm
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: '1.4.3'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify TypeScript types
-        run: pnpm run typecheck
-
-      - name: Verify Effect v4 language service diagnostics
-        run: pnpm run check:effect
-
-      - name: Run unit tests
-        run: bun test
+      - name: Verify types, Effect diagnostics, and tests
+        run: |
+          pnpm run typecheck
+          pnpm run check:effect
+          bun test
 
       - name: Bump SemVer version
         id: bump
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
         run: |
-          NEW_VERSION=$(bun run scripts/bump-version.ts ${{ inputs.release_type }})
-          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
-          echo "Bumped version to ${NEW_VERSION}"
+          NEW_VERSION=$(bun run scripts/bump-version.ts "$RELEASE_TYPE")
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Build standalone Bun executable
+      - name: Import Developer ID Application certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./scripts/import-apple-certificate.sh
+
+      - name: Build standalone executable with signed native addon
         run: bun run build
 
-      - name: Generate macOS AppIcon.icns
+      - name: Generate macOS icon
         run: ./scripts/generate-icons.sh
 
-      - name: Install cargo-packager
-        run: cargo install cargo-packager --locked
-
-      - name: Package macOS Application & DMG
+      - name: Install packaging tools
         run: |
-          cargo packager --release --config packager.json || \
-            cargo packager --release --config packager.json --formats app
+          cargo install cargo-packager --version 0.11.8 --locked
+          brew install minisign
 
-      - name: Ensure macOS DMG artifact exists (with hdiutil fallback)
-        id: dmg
+      - name: Sign, notarize, staple, and package release artifacts
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+        run: ./scripts/package-macos-release.sh
+
+      - name: Commit version bump and push immutable tag
         env:
           NEW_VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          DMG_FILE=$(find bundle -name "*.dmg" | head -n 1 || true)
-          if [ -z "$DMG_FILE" ]; then
-            echo "No DMG found in bundle directory. Attempting fallback via hdiutil..."
-            APP_PATH=$(find bundle -name "*.app" | head -n 1 || true)
-            if [ -n "$APP_PATH" ]; then
-              echo "Ad-hoc signing ${APP_PATH} prior to hdiutil DMG creation..."
-              xattr -cr "$APP_PATH"
-              codesign --force --deep --sign - "$APP_PATH"
-              DMG_FILE="bundle/Blackboard-${NEW_VERSION}.dmg"
-              hdiutil create -volname "Blackboard" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_FILE"
-              echo "Created DMG using hdiutil at ${DMG_FILE}"
-            else
-              echo "Error: Neither .dmg nor .app found in bundle directory!" >&2
-              exit 1
-            fi
-          fi
-          APP_PATH=$(find bundle -name "*.app" | head -n 1 || true)
-          if [ -n "$APP_PATH" ]; then
-            echo "Verifying .app bundle signature..."
-            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          fi
-          echo "Ad-hoc signing DMG artifact..."
-          xattr -cr "$DMG_FILE"
-          codesign --force --sign - "$DMG_FILE"
-          echo "path=${DMG_FILE}" >> $GITHUB_OUTPUT
-          ls -lh "${DMG_FILE}"
-
-      - name: Commit version bump and push git tag
-        env:
-          NEW_VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add package.json packager.json
           git commit -m "chore(release): bump version to v${NEW_VERSION}"
-          git tag -f "v${NEW_VERSION}"
-          git push origin HEAD && git push origin "refs/tags/v${NEW_VERSION}" --force
+          git tag "v${NEW_VERSION}"
+          git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "refs/tags/v${NEW_VERSION}"
 
-      - name: Create GitHub Release
+      - name: Create complete draft release, then publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ steps.bump.outputs.version }}
-          DMG_PATH: ${{ steps.dmg.outputs.path }}
         run: |
-          gh release create "v${NEW_VERSION}" "${DMG_PATH}" \
-            --title "Blackboard v${NEW_VERSION}" \
-            --generate-notes
+          gh release create "v${NEW_VERSION}" \
+            "bundle/Blackboard-${NEW_VERSION}-aarch64.dmg" \
+            bundle/Blackboard-aarch64.app.tar.gz \
+            bundle/Blackboard-aarch64.app.tar.gz.sig bundle/SHA256SUMS \
+            --verify-tag --draft --title "Blackboard v${NEW_VERSION}" --generate-notes
+          gh release edit "v${NEW_VERSION}" --draft=false --latest
+
+      - name: Remove signing keychain and certificate material
+        if: always()
+        run: ./scripts/cleanup-apple-certificate.sh

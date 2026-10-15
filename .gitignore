@@ -7,3 +7,9 @@ AppIcon.icns
 AppIcon.iconset/
 icon_1024.png
 .DS_Store
+*.p12
+*.p8
+*.certSigningRequest
+*.key
+.env
+.env.*

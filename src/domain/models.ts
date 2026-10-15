@@ -5,6 +5,12 @@ export const APP_VERSION: string = pkg.version
 
 export const GITHUB_REPO = "mariusom/blackboard"
 
+// Replaced at compile time. Update trust must not come from the downloaded feed.
+declare const BLACKBOARD_UPDATER_PUBLIC_KEY: string
+export const UPDATER_PUBLIC_KEY = typeof BLACKBOARD_UPDATER_PUBLIC_KEY === "undefined"
+  ? ""
+  : BLACKBOARD_UPDATER_PUBLIC_KEY
+
 declare const GreetingErrorBrand: unique symbol
 export class GreetingError extends Schema.TaggedError<
   GreetingError,

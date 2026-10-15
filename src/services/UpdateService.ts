@@ -1,19 +1,15 @@
 import { spawn } from "node:child_process"
-import * as fs from "node:fs/promises"
-import * as os from "node:os"
-import * as path from "node:path"
-import { Context, Effect, Layer, Ref, Schema } from "effect"
+import { Context, Effect, Layer, Ref, Semaphore } from "effect"
+import type { AvailableUpdate, CheckUpdateOptions } from "@gpuix/native"
 import {
   APP_VERSION,
-  GitHubRelease,
   GITHUB_REPO,
   isNewerVersion,
   resolveTargetAppBundlePath,
+  UPDATER_PUBLIC_KEY,
   UpdateError,
   type UpdateInfo,
 } from "../domain/models"
-
-const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 
 export interface UpdateServiceShape {
   readonly getUpdateState: Effect.Effect<UpdateInfo>
@@ -22,249 +18,135 @@ export interface UpdateServiceShape {
   readonly restartApp: Effect.Effect<void, UpdateError>
 }
 
-export class UpdateService extends Context.Service<
-  UpdateService,
-  UpdateServiceShape
->()("blackboard/UpdateService") {
-  static readonly makeLayer = (customFetch?: typeof fetch) =>
-    Layer.effect(
-      UpdateService,
-      Effect.gen(function* () {
-        const doFetch = customFetch ?? globalThis.fetch
+// Keep the native boundary injectable without loading the renderer in service tests.
+export type SignedUpdate = Pick<AvailableUpdate, "version" | "downloadUrl" | "format" | "downloadAndInstall">
+export interface UpdateDependencies {
+  readonly publicKey: string
+  readonly checkUpdate: (version: string, options: CheckUpdateOptions) => Promise<SignedUpdate | null>
+  readonly execPath: string
+  readonly platform: string
+  readonly relaunch: (appPath: string) => Promise<void>
+}
 
-        const stateRef = yield* Ref.make<UpdateInfo>({
-          currentVersion: APP_VERSION,
-          latestVersion: APP_VERSION,
-          hasUpdate: false,
-          downloadUrl: null,
-          releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
-          status: "idle",
+const defaults: UpdateDependencies = {
+  publicKey: UPDATER_PUBLIC_KEY,
+  checkUpdate: async (version, options) => (await import("@gpuix/native")).checkUpdate(version, options),
+  execPath: process.execPath,
+  platform: process.platform,
+  relaunch: (appPath) => new Promise<void>((resolve, reject) => {
+    // Pass the app path as an argument, never interpolate it into shell code.
+    const child = spawn("/bin/sh", ["-c", 'sleep 1; /usr/bin/open -n "$1"', "blackboard-restart", appPath], {
+      detached: true,
+      stdio: "ignore",
+    })
+    child.once("error", reject)
+    child.once("spawn", () => {
+      child.unref()
+      setTimeout(() => process.exit(0), 150)
+      resolve()
+    })
+  }),
+}
+
+export class UpdateService extends Context.Service<UpdateService, UpdateServiceShape>()("blackboard/UpdateService") {
+  static readonly makeLayer = (overrides: Partial<UpdateDependencies> = {}) =>
+    Layer.effect(UpdateService, Effect.gen(function* () {
+      const deps = { ...defaults, ...overrides }
+      const lock = yield* Semaphore.make(1)
+      const pending = yield* Ref.make<SignedUpdate | null>(null)
+      const state = yield* Ref.make<UpdateInfo>({
+        currentVersion: APP_VERSION,
+        latestVersion: APP_VERSION,
+        hasUpdate: false,
+        downloadUrl: null,
+        releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
+        status: "idle",
+        errorMessage: null,
+      })
+      const markError = (error: UpdateError) => Ref.update(state, (s): UpdateInfo => ({
+        ...s, status: "error", errorMessage: error.message,
+      }))
+      const failure = (message: string, cause: unknown) => new UpdateError({
+        message,
+        cause: cause instanceof Error ? cause.message : String(cause),
+      })
+      const requireInstalledApp = Effect.gen(function* () {
+        if (
+          deps.platform !== "darwin" ||
+          !deps.execPath.includes(".app/Contents/MacOS/") ||
+          deps.execPath.startsWith("/Volumes/") ||
+          deps.execPath.includes("/AppTranslocation/")
+        ) {
+          return yield* new UpdateError({ message: "Install Blackboard in Applications and launch it there before updating." })
+        }
+        return resolveTargetAppBundlePath(deps.execPath)
+      })
+      const checkForUpdates = Effect.gen(function* () {
+        const current = yield* Ref.get(state)
+        if (current.status === "ready-to-restart") return current
+        yield* Ref.set(pending, null)
+        yield* Ref.update(state, (s): UpdateInfo => ({ ...s, status: "checking", hasUpdate: false, downloadUrl: null, errorMessage: null }))
+        if (!deps.publicKey.trim()) {
+          return yield* new UpdateError({
+            message: "Automatic updates are not configured in this build.",
+            cause: "Missing updater public key",
+          })
+        }
+        const update = yield* Effect.tryPromise({
+          try: () => deps.checkUpdate(APP_VERSION, {
+            endpoints: [`https://github.com/${GITHUB_REPO}/releases/latest`],
+            pubkey: deps.publicKey,
+            timeoutMs: 30_000,
+          }),
+          catch: (cause) => failure("Could not check for a signed update. Please try again later.", cause),
+        })
+        if (update && (!isNewerVersion(APP_VERSION, update.version) || update.format !== "app" || !update.downloadUrl.startsWith("https://"))) {
+          return yield* new UpdateError({ message: "The update feed returned an unsupported release." })
+        }
+        yield* Ref.set(pending, update)
+        return yield* Ref.updateAndGet(state, (s): UpdateInfo => ({
+          ...s,
+          latestVersion: update?.version ?? APP_VERSION,
+          hasUpdate: update !== null,
+          downloadUrl: update?.downloadUrl ?? null,
+          status: update ? "available" : "up-to-date",
           errorMessage: null,
+        }))
+      }).pipe(Effect.tapError(markError), lock.withPermit)
+
+      const installUpdate = Effect.gen(function* () {
+        const current = yield* Ref.get(state)
+        if (current.status === "ready-to-restart") return current
+        yield* requireInstalledApp
+        const update = yield* Ref.get(pending)
+        if (!update) return yield* new UpdateError({ message: "Check for a signed update before installing." })
+        yield* Ref.update(state, (s): UpdateInfo => ({ ...s, status: "downloading", errorMessage: null }))
+        // GPUIX verifies the archive against the embedded public key before replacing files.
+        // Do not interrupt the native replacement or re-sign the downloaded app.
+        yield* Effect.tryPromise({
+          try: () => update.downloadAndInstall(),
+          catch: (cause) => failure("Update verification or installation failed. Please try again.", cause),
         })
+        yield* Ref.set(pending, null)
+        return yield* Ref.updateAndGet(state, (s): UpdateInfo => ({ ...s, status: "ready-to-restart", errorMessage: null }))
+      }).pipe(Effect.tapError(markError), Effect.uninterruptible, lock.withPermit)
 
-        const getUpdateState = Ref.get(stateRef)
-
-        const setStatus = (
-          next: UpdateInfo["status"],
-          errorMessage: string | null = null,
-        ): Effect.Effect<void> =>
-          Ref.update(stateRef, (s): UpdateInfo => ({ ...s, status: next, errorMessage }))
-
-        const markError = (error: UpdateError): Effect.Effect<void> =>
-          Ref.update(stateRef, (s): UpdateInfo => ({ ...s, status: "error", errorMessage: error.message }))
-
-        const toUpdateError = (
-          message: string,
-          cause: unknown,
-        ): UpdateError =>
-          new UpdateError({
-            message,
-            cause: cause instanceof Error ? cause.message : String(cause),
-          })
-
-        const runCommand = (cmd: readonly string[]) =>
-          Effect.tryPromise({
-            try: () =>
-              new Promise<void>((resolve, reject) => {
-                const [program, ...args] = cmd
-                const child = spawn(program!, args, { stdio: "ignore" })
-                child.once("error", reject)
-                child.once("close", (code) => {
-                  if (code === 0) {
-                    resolve()
-                  } else {
-                    reject(new Error(`Command '${cmd.join(" ")}' exited with code ${code}`))
-                  }
-                })
-              }),
-            catch: (cause) => toUpdateError(`Update command failed: ${cmd.join(" ")}`, cause),
-          })
-
-        const fetchLatestRelease = Effect.gen(function* () {
-          const response = yield* Effect.tryPromise({
-            try: () =>
-              doFetch(LATEST_RELEASE_API_URL, {
-                headers: {
-                  Accept: "application/vnd.github+json",
-                  "User-Agent": `Blackboard-App/${APP_VERSION}`,
-                },
-              }),
-            catch: (cause) =>
-              toUpdateError("Failed to contact GitHub Releases API", cause),
-          })
-          if (!response.ok) {
-            return yield* new UpdateError({
-              message: `GitHub Releases API returned HTTP ${response.status}`.trim(),
-            })
-          }
-          const payload = yield* Effect.tryPromise({
-            try: () => response.json(),
-            catch: (cause) =>
-              toUpdateError("Failed to read GitHub Releases API JSON body", cause),
-          })
-          return yield* Schema.decodeUnknownEffect(GitHubRelease)(payload).pipe(
-            Effect.mapError((cause) =>
-              toUpdateError("Invalid GitHub release payload from API", cause),
-            ),
-          )
+      const restartApp = Effect.gen(function* () {
+        if ((yield* Ref.get(state)).status !== "ready-to-restart") {
+          return yield* new UpdateError({ message: "No installed update is ready to restart." })
+        }
+        const appPath = yield* requireInstalledApp
+        yield* Effect.tryPromise({
+          try: () => deps.relaunch(appPath),
+          catch: (cause) => failure("Could not restart Blackboard. Quit and reopen the app.", cause),
         })
+      }).pipe(
+        Effect.tapError((error) => Ref.update(state, (s): UpdateInfo => ({ ...s, errorMessage: error.message }))),
+        lock.withPermit,
+      )
 
-        const checkForUpdates: Effect.Effect<UpdateInfo, UpdateError> = Effect.gen(function* () {
-          yield* setStatus("checking")
-          return yield* fetchLatestRelease.pipe(
-            Effect.flatMap((release) =>
-              Effect.gen(function* () {
-                const latestVersion = release.tag_name.replace(/^[vV]/, "")
-                const downloadUrl =
-                  release.assets.find((asset) => asset.name.endsWith(".dmg"))
-                    ?.browser_download_url ?? null
-                const hasUpdate = isNewerVersion(APP_VERSION, latestVersion)
-                const next: UpdateInfo = {
-                  currentVersion: APP_VERSION,
-                  latestVersion,
-                  hasUpdate,
-                  downloadUrl,
-                  releaseUrl: release.html_url,
-                  status: hasUpdate ? "available" : "up-to-date",
-                  errorMessage: null,
-                }
-                yield* Ref.set(stateRef, next)
-                yield* Effect.logInfo(
-                  `UpdateService: latest release v${latestVersion}, hasUpdate=${hasUpdate}`,
-                )
-                return next
-              }),
-            ),
-            Effect.tapError(markError),
-          )
-        })
+      return UpdateService.of({ getUpdateState: Ref.get(state), checkForUpdates, installUpdate, restartApp })
+    }))
 
-        const installUpdate: Effect.Effect<UpdateInfo, UpdateError> = Effect.gen(function* () {
-          const state = yield* Ref.get(stateRef)
-          const downloadUrl = state.downloadUrl
-          if (!downloadUrl) {
-            return yield* new UpdateError({
-              message: "No DMG download URL available for update",
-            })
-          }
-          if (process.platform !== "darwin") {
-            return yield* new UpdateError({
-              message: "Automatic DMG installation is only supported on macOS",
-            })
-          }
-
-          yield* setStatus("downloading")
-          const dmgPath = path.join(os.tmpdir(), `Blackboard-${state.latestVersion}.dmg`)
-          const response = yield* Effect.tryPromise({
-            try: () => doFetch(downloadUrl),
-            catch: (cause) => toUpdateError("Failed to download update DMG", cause),
-          })
-          if (!response.ok) {
-            return yield* new UpdateError({
-              message: `DMG download failed with HTTP ${response.status}`,
-            })
-          }
-          const bytes = yield* Effect.tryPromise({
-            try: async () => new Uint8Array(await response.arrayBuffer()),
-            catch: (cause) => toUpdateError("Failed to read update DMG body", cause),
-          })
-          yield* Effect.tryPromise({
-            try: () => fs.writeFile(dmgPath, bytes),
-            catch: (cause) =>
-              toUpdateError(`Failed to write temporary DMG to ${dmgPath}`, cause),
-          })
-
-          yield* setStatus("installing")
-          const mountPoint = path.join(
-            os.tmpdir(),
-            `blackboard-Updater-mount-${Date.now()}`,
-          )
-          const targetAppPath = resolveTargetAppBundlePath(process.execPath)
-          const sourceAppPath = path.join(mountPoint, "Blackboard.app")
-
-          yield* Effect.tryPromise({
-            try: () => fs.mkdir(mountPoint, { recursive: true }),
-            catch: (cause) =>
-              toUpdateError(`Failed to create DMG mount point ${mountPoint}`, cause),
-          })
-
-          yield* Effect.scoped(
-            Effect.acquireUseRelease(
-              runCommand([
-                "hdiutil",
-                "attach",
-                "-nobrowse",
-                "-readonly",
-                "-mountpoint",
-                mountPoint,
-                dmgPath,
-              ]),
-              () =>
-                Effect.gen(function* () {
-                  yield* Effect.tryPromise({
-                    try: () => fs.rm(targetAppPath, { recursive: true, force: true }),
-                    catch: (cause) =>
-                      toUpdateError(
-                        `Failed to remove existing app bundle at ${targetAppPath}`,
-                        cause,
-                      ),
-                  })
-                  yield* runCommand(["cp", "-R", sourceAppPath, targetAppPath])
-                  yield* runCommand(["xattr", "-cr", targetAppPath])
-                  yield* runCommand([
-                    "codesign",
-                    "--force",
-                    "--deep",
-                    "--sign",
-                    "-",
-                    targetAppPath,
-                  ])
-                }),
-              () =>
-                Effect.gen(function* () {
-                  yield* runCommand(["hdiutil", "detach", mountPoint, "-force"]).pipe(
-                    Effect.ignore,
-                  )
-                  yield* Effect.tryPromise({
-                    try: () => fs.rm(dmgPath, { force: true }),
-                    catch: () =>
-                      new UpdateError({ message: "Failed to delete temporary DMG" }),
-                  }).pipe(Effect.ignore)
-                }),
-            ),
-          )
-
-          yield* Effect.logInfo(
-            `UpdateService: installed v${state.latestVersion} to ${targetAppPath}`,
-          )
-          return yield* Ref.updateAndGet(stateRef, (s): UpdateInfo => ({
-            ...s,
-            status: "ready-to-restart",
-            errorMessage: null,
-          }))
-        })
-
-        const restartApp: Effect.Effect<void, UpdateError> = Effect.gen(function* () {
-          const targetAppPath = resolveTargetAppBundlePath(process.execPath)
-          yield* Effect.sync(() => {
-            const child = spawn(
-              "sh",
-              ["-c", `sleep 0.6 && open -n "${targetAppPath}"`],
-              { detached: true, stdio: "ignore" },
-            )
-            child.unref()
-            setTimeout(() => process.exit(0), 150)
-          })
-        })
-
-        return UpdateService.of({
-          getUpdateState,
-          checkForUpdates,
-          installUpdate,
-          restartApp,
-        })
-      }),
-    )
-
-  static readonly layer = UpdateService.makeLayer(globalThis.fetch)
+  static readonly layer = UpdateService.makeLayer()
 }

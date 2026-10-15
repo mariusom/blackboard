@@ -159,16 +159,110 @@ bun run bump major
 ```
 Outputs strictly the single-line bumped version string to stdout (e.g. `0.0.1`) without extraneous log lines, and syncs the new version across `package.json` and `packager.json`.
 
-### GitHub Actions Release Workflow
-Defined in `.github/workflows/release.yml`:
-1. Triggered on GitHub via **Run workflow** (`workflow_dispatch`).
-2. Input `release_type` (`patch`, `minor`, `major`).
-3. Runs on `macos-latest`.
-4. Sets up `pnpm@12.11.2` via `pnpm/action-setup@v4` and Bun via `oven-sh/setup-bun@v2`.
-5. Installs dependencies using `pnpm install --frozen-lockfile`.
-6. Runs typecheck (`pnpm run typecheck`), Effect language service diagnostics (`pnpm run check:effect`), and unit tests (`bun test`).
-7. Bumps SemVer and pushes git commit and tag `v<version>`.
-8. Compiles standalone Bun executable (`bun run build`).
-9. Generates macOS `AppIcon.icns` from `assets/icon.svg`.
-10. Packages macOS `.app` and `.dmg` using `cargo-packager` (with `hdiutil` fallback).
-11. Creates a GitHub Release and uploads the `.dmg`.
+### Signed macOS releases and automatic updates
+
+The release workflow in [`.github/workflows/release.yml`](.github/workflows/release.yml)
+builds an **Apple Silicon** DMG. The pinned GPUIX native package currently supplies
+an arm64 macOS renderer; this is not an Intel or universal build.
+
+Each release signs the native addon and application with Developer ID, enables the
+hardened runtime with Bun's JIT permissions, submits the app to Apple, and staples
+its notarization ticket. It then creates, signs, notarizes, and staples the DMG.
+Signing or notarization failures stop the release. No ad-hoc distribution fallback
+is used. See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
+
+Blackboard checks for updates on startup and every six hours. Click **Update** to
+download and install, then **Restart**. The DMG is for the initial installation;
+the in-app updater downloads `Blackboard-aarch64.app.tar.gz` and its `.sig` from
+the same release. GPUIX verifies this archive against the public key embedded at
+build time before installing it. It preserves the app's Apple signature. See the
+[GPUIX updater documentation](https://www.gpuix.dev/#6-auto-update).
+
+Install Blackboard by dragging it to **Applications**, eject the DMG, and launch
+that installed copy. Updates require write access to the installed application.
+The updater refuses development binaries, mounted DMGs, and translocated apps.
+The GitHub repository must be public so installed clients can read the release
+feed without a GitHub token. Existing v0.0.4 installations need a manual install
+of the first signed release: the old update button only checked for updates.
+
+#### Configure GitHub settings once
+
+Use **mariusom/blackboard → Settings → Secrets and variables → Actions**.
+Credentials from another repository (such as `dosium/fresh`) are not automatically
+available here. Add these repository **secrets**:
+
+| Secret | Value and origin |
+| --- | --- |
+| `APPLE_TEAM_ID` | The 10-character Team ID in Apple Developer account → Membership details. |
+| `APPLE_ID` | Email for an Apple account that belongs to that developer team and can notarize software. |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Generate for that same account at account.apple.com → Sign-In and Security → App-Specific Passwords; two-factor authentication is required. |
+| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application `.p12`, including its private key. |
+| `APPLE_CERTIFICATE_PASSWORD` | The password you chose when exporting that `.p12`. |
+| `CARGO_PACKAGER_SIGN_PRIVATE_KEY` | The updater private key file's contents, generated below. Separate from the Apple certificate. |
+| `CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD` | The password chosen when generating the updater signing key. |
+
+To obtain the Apple certificate, create a certificate signing request in Keychain
+Access → Certificate Assistant → Request a Certificate From a Certificate Authority
+and save it to disk. In the Apple Developer portal create a **Developer ID
+Application** certificate using that request (G2 Sub-CA when prompted). Install the
+resulting `.cer` on the Mac holding the request's private key. Under Keychain Access
+→ login → My Certificates, expand the certificate to confirm it has a private key,
+then export it as a password-protected `.p12`. The certificate alone cannot sign.
+Follow [Apple's certificate instructions](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/)
+for the required account permissions.
+
+Upload the `.p12` without printing its contents:
+
+```bash
+base64 -i /secure/path/DeveloperID.p12 | tr -d '\n' | gh secret set APPLE_CERTIFICATE -R mariusom/blackboard
+```
+
+Keep an encrypted backup of the `.p12` and its password. An Apple account password
+change revokes app-specific passwords; update the corresponding GitHub secret.
+GitHub displays secret names and dates, and does not reveal saved values.
+
+Generate a password-protected updater key **once**, saving it outside the repository:
+
+```bash
+cargo install cargo-packager --version 0.11.8 --locked
+cargo packager signer generate --path /secure/path/blackboard-updater.key
+# The command prompts for the new key's password.
+gh secret set CARGO_PACKAGER_SIGN_PRIVATE_KEY -R mariusom/blackboard < /secure/path/blackboard-updater.key
+gh secret set CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD -R mariusom/blackboard
+# Enter the same updater password at the hidden prompt.
+gh variable set UPDATER_PUBLIC_KEY -R mariusom/blackboard < /secure/path/blackboard-updater.key.pub
+```
+
+`UPDATER_PUBLIC_KEY` is a repository **variable**, not a secret. The build embeds it
+into the executable; the downloaded release never chooses its own trust key. CI
+verifies the generated archive signature against this same public key before
+publishing. Back up the updater key securely and keep it stable across releases.
+Changing it without a migration prevents installed clients from trusting new
+updates. Never commit the private key, `.p12`, or passwords.
+
+#### Publish a release
+
+Push these changes to the default branch. In **Actions → Release macOS DMG → Run
+workflow**, select that branch and a `patch`, `minor`, or `major` bump. The workflow:
+
+1. Requires all signing settings and an arm64 macOS runner.
+2. Installs locked dependencies and runs type checks, Effect diagnostics, and tests.
+3. Bumps `package.json` and `packager.json` together, then compiles and packages.
+4. Signs and notarizes the app and DMG, staples tickets, and checks Gatekeeper.
+5. Archives the final stapled app, signs the archive, and verifies the updater key pair.
+6. Pushes the version commit and a new immutable `v<version>` tag atomically.
+7. Uploads all four assets to a draft release, then publishes it as latest.
+8. Removes the temporary signing keychain, even after failure.
+
+Published assets: `Blackboard-<version>-aarch64.dmg`,
+`Blackboard-aarch64.app.tar.gz`, `Blackboard-aarch64.app.tar.gz.sig`, and `SHA256SUMS`.
+SHA-256 hashes help check downloads; the updater's signature establishes authenticity.
+The built-in `GITHUB_TOKEN` needs permission to write repository contents. Branch
+protection must allow the release bot's version commit, or the push will fail.
+No tags are force-pushed. If publication fails after tagging, inspect the existing
+tag/draft and finish that release; do not move a published version tag.
+
+Local development builds remain available through `bun run build`. Without an
+embedded public key, automatic updating reports that it is unconfigured. Live
+Developer ID signing, Apple notarization, and a real installed-app update still
+need verification with your configured Apple credentials and two signed releases.
