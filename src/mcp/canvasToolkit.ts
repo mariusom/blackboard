@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { Board, BoardPatch, CreateBoard, Workspace, WorkspaceError } from "../workspace/model"
+import { DeleteToken, TokenCollection, UpsertTokens } from "../workspace/tokens"
 
 export const CanvasListBoards = Tool.make("canvas_list_boards", {
   description: "Read the live Blackboard workspace, including canvas IDs, positions, sizes, revisions and HTML. Open Blackboard first. Canvas previews render HTML and CSS; scripts, external resources and network requests are disabled. Embed images as data URLs or use CSS/SVG artwork.",
@@ -22,4 +23,16 @@ export const CanvasDeleteBoard = Tool.make("canvas_delete_board", {
   description: "Delete one canvas by ID when the user requests its removal.",
   parameters: Schema.Struct({ id: Schema.String }), success: Schema.Struct({ removedId: Schema.String }), failure: WorkspaceError,
 })
-export const CanvasToolkit = Toolkit.make(CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard)
+export const CanvasListTokens = Tool.make("canvas_list_tokens", {
+  description: "Read the shared design-token library and its revision. Reuse these values in every canvas as CSS var(--token-name). Tokens include colors, spacing, typography and radii; linked canvases and HTML exports update together.",
+  success: TokenCollection, failure: WorkspaceError,
+})
+export const CanvasUpsertTokens = Tool.make("canvas_upsert_tokens", {
+  description: "Create or update shared design tokens by name, preserving all unrelated tokens. Names are lowercase kebab-case (color-brand, space-md). Colors use hex; dimensions use px/rem/em/percent; aliases use var(--existing-token). Read the library first and send expectedRevision to protect concurrent edits. Create reusable tokens before generating the HTML that references them.",
+  parameters: UpsertTokens, success: TokenCollection, failure: WorkspaceError,
+})
+export const CanvasDeleteToken = Tool.make("canvas_delete_token", {
+  description: "Remove an unused design token. References in canvases or aliases must be replaced first; in-use tokens cannot be deleted.",
+  parameters: DeleteToken, success: TokenCollection, failure: WorkspaceError,
+})
+export const CanvasToolkit = Toolkit.make(CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken)

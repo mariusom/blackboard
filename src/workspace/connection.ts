@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Board, BoardPatch, CreateBoard, Workspace, WorkspaceError } from "./model"
+import { TokenCollection, type UpsertTokens } from "./tokens"
 
 export const applicationDirectory = () => join(homedir(), "Library", "Application Support", "Blackboard")
 export const discoveryPath = () => join(applicationDirectory(), "runtime.json")
@@ -14,6 +15,9 @@ export class CanvasConnection extends Context.Service<CanvasConnection, {
   readonly create: (input: CreateBoard) => Effect.Effect<Board, WorkspaceError>
   readonly update: (id: string, patch: BoardPatch) => Effect.Effect<Board, WorkspaceError>
   readonly remove: (id: string) => Effect.Effect<void, WorkspaceError>
+  readonly tokens: Effect.Effect<TokenCollection, WorkspaceError>
+  readonly upsertTokens: (input: UpsertTokens) => Effect.Effect<TokenCollection, WorkspaceError>
+  readonly deleteToken: (name: string, expectedRevision?: number) => Effect.Effect<TokenCollection, WorkspaceError>
 }>()("blackboard/CanvasConnection") {
   static readonly layer = Layer.effect(CanvasConnection, Effect.gen(function* () {
     const path = yield* Config.String("BLACKBOARD_CONNECTION_FILE").pipe(Config.withDefault(discoveryPath()))
@@ -37,6 +41,9 @@ export class CanvasConnection extends Context.Service<CanvasConnection, {
       create: Effect.fn("CanvasConnection.create")((input: CreateBoard) => request("/api/boards", Board, input)),
       update: Effect.fn("CanvasConnection.update")((id: string, patch: BoardPatch) => request(`/api/boards/${encodeURIComponent(id)}`, Board, patch)),
       remove: Effect.fn("CanvasConnection.remove")((id: string) => request(`/api/boards/${encodeURIComponent(id)}/delete`, Schema.Unknown, {}).pipe(Effect.asVoid)),
+      tokens: request("/api/tokens", TokenCollection),
+      upsertTokens: Effect.fn("CanvasConnection.upsertTokens")((input: UpsertTokens) => request("/api/tokens", TokenCollection, input)),
+      deleteToken: Effect.fn("CanvasConnection.deleteToken")((name: string, expectedRevision?: number) => request("/api/tokens/delete", TokenCollection, { name, expectedRevision })),
     })
   }))
 }

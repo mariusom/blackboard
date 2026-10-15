@@ -23,6 +23,14 @@ Canvas geometry and committed HTML save atomically to:
 
 Invalid saved files are preserved and reported rather than replaced with starter content. Unsaved source drafts remain in the editor until saved or discarded. The application asks before closing with a draft.
 
+## Shared design tokens
+
+Open **Tokens** to create and edit workspace-wide colors, spacing, font sizes, font families, font weights, radii, and numbers. Reference a token in canvas CSS with `var(--color-brand)` or copy its reference from the library. Saving a value updates every linked canvas and open preview. Exports embed the token CSS so they work independently.
+
+Token names are stable lowercase CSS names. Values support hex colors, CSS lengths (`px`, `rem`, `em`, `%`), font families and weights, numbers, and aliases such as `var(--color-brand)`. Aliases must refer to a compatible type and cannot form a cycle. Tokens used by saved canvases or other tokens cannot be deleted until their references are replaced.
+
+The library saves with the workspace. Existing custom HTML is preserved; untouched starter canvases gain token references with their original values as fallbacks. Token drafts have a separate save action and conflict protection when another agent changes the library.
+
 ## Connect a coding agent
 
 Open **Agent** in Blackboard and copy the MCP configuration. For an installed release:
@@ -49,10 +57,13 @@ Available tools:
 | `canvas_create_board` | Generate a new named HTML canvas |
 | `canvas_update_board` | Patch HTML, name, dimensions, or position |
 | `canvas_delete_board` | Remove a requested canvas |
+| `canvas_list_tokens` | Inspect shared values and the token library revision |
+| `canvas_upsert_tokens` | Create or update named values while preserving unrelated tokens |
+| `canvas_delete_token` | Remove an unused token |
 
-Use `expectedRevision` when replacing HTML so concurrent changes produce a visible conflict. Only send fields you intend to change. The resource `canvas://blackboard/workspace` returns the current workspace; the prompt `design-canvas-page` guides generation.
+Use `expectedRevision` when replacing HTML so concurrent changes produce a visible conflict. Only send fields you intend to change. Use the token library’s `revision` as `expectedRevision` when changing tokens. Agents should inspect and reuse shared values before generating HTML. The resources `canvas://blackboard/workspace` and `canvas://blackboard/tokens` expose the workspace and token library; the prompt `design-canvas-page` guides generation.
 
-Previews support HTML and CSS, with inline SVG, CSS artwork, and embedded data images/fonts. Generated documents run in sandboxed frames without scripts, network access, forms, or native bridge access. External images and fonts should be embedded. HTML export retains the original source.
+Previews support HTML and CSS, with inline SVG, CSS artwork, and embedded data images/fonts. Generated documents run in sandboxed frames without scripts, network access, forms, or native bridge access. External images and fonts should be embedded. HTML export retains the source and includes the shared token definitions.
 
 The local app server binds only to `127.0.0.1`, requires an ephemeral session credential, checks request origins, and records connection details in a private `runtime.json` beside the workspace. MCP uses that connection file. Development tests can override its path with `BLACKBOARD_CONNECTION_FILE`.
 

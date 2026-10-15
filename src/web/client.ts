@@ -1,5 +1,6 @@
 import { Schema } from "effect"
-import { Board, clampZoom, fitBoards, previewDocument, zoomAt, type BoardPatch, type Camera } from "../workspace/model"
+import { Board, clampZoom, exportDocument, fitBoards, previewDocument, zoomAt, type BoardPatch, type Camera } from "../workspace/model"
+import { createTokenPanel } from "./tokens"
 import { BLANK_HTML } from "../workspace/templates"
 import { WorkspaceState } from "../workspace/protocol"
 
@@ -42,10 +43,10 @@ let connected = true
 let pendingWrites = 0
 let saveError = false
 let editor: { id: string; revision: number; dirty: boolean } | null = null
-window.blackboardHasUnsavedChanges = () => Boolean(editor?.dirty || pendingWrites)
+window.blackboardHasUnsavedChanges = () => Boolean(editor?.dirty || tokenPanel.hasUnsavedChanges() || pendingWrites)
 let toastTimer: ReturnType<typeof setTimeout>
 let liveTimer: ReturnType<typeof setTimeout>
-const views = new Map<string, { node: HTMLElement; iframe: HTMLIFrameElement; html: string }>()
+const views = new Map<string, { node: HTMLElement; iframe: HTMLIFrameElement; html: string; tokensRevision: number }>()
 type HistoryEntry = { before: Board | null; after: Board | null; id: string; revision: number }
 const undoStack: HistoryEntry[] = []
 const redoStack: HistoryEntry[] = []
@@ -76,7 +77,7 @@ async function refresh() { acceptState(Schema.decodeUnknownSync(WorkspaceState)(
 function acceptState(next: WorkspaceState) {
   state = next
   if (document.activeElement !== element("workspace-name")) element<HTMLInputElement>("workspace-name").value = next.workspace.name
-  renderBoards(); renderUpdate()
+  renderBoards(); renderUpdate(); renderPreview()
   if (editor && !editor.dirty) {
     const current = next.workspace.boards.find(b => b.id === editor?.id)
     if (current && current.revision !== editor.revision) loadEditor(current)
@@ -86,7 +87,7 @@ function acceptState(next: WorkspaceState) {
     if (editor?.dirty) { element("editor-error").hidden = false; element("editor-error").textContent = "This canvas was removed elsewhere. Copy your draft before closing." }
     else closeEditor()
   }
-  renderSelection(); renderSaveState()
+  renderSelection(); renderSaveState(); tokenPanel.update()
 }
 function renderCamera() {
   world.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`
@@ -120,7 +121,7 @@ function renderBoards() {
       const iframe = document.createElement("iframe")
       iframe.setAttribute("sandbox", ""); iframe.setAttribute("referrerpolicy", "no-referrer"); iframe.setAttribute("tabindex", "-1")
       node.querySelector(".board-surface")?.append(iframe); world.append(node)
-      view = { node, iframe, html: "" }; views.set(board.id, view)
+      view = { node, iframe, html: "", tokensRevision: -1 }; views.set(board.id, view)
     }
     view.node.classList.toggle("selected", board.id === selectedId)
     view.node.style.cssText = `left:${board.x}px;top:${board.y}px;width:${board.width}px;height:${board.height}px`
@@ -129,7 +130,10 @@ function renderBoards() {
     const title = view.node.querySelector(".board-title"); if (title) title.textContent = board.name
     const size = view.node.querySelector(".board-size"); if (size) size.textContent = `${Math.round(board.width)} × ${Math.round(board.height)}`
     view.iframe.title = board.name
-    if (view.html !== board.html && !(editor?.id === board.id && editor.dirty)) { view.iframe.srcdoc = previewDocument(board.html); view.html = board.html }
+    const content = editor?.id === board.id && editor.dirty ? source.value : board.html
+    if (view.html !== content || view.tokensRevision !== state.workspace.tokensRevision) {
+      view.iframe.srcdoc = previewDocument(content, state.workspace.tokens); view.html = content; view.tokensRevision = state.workspace.tokensRevision
+    }
   }
   element("empty").hidden = state.workspace.boards.length !== 0
 }
@@ -172,7 +176,7 @@ function markDirty() {
   clearTimeout(liveTimer)
   liveTimer = setTimeout(() => {
     const view = editor && views.get(editor.id)
-    if (view) view.iframe.srcdoc = previewDocument(source.value)
+    if (view) { view.iframe.srcdoc = previewDocument(source.value, state?.workspace.tokens); view.html = source.value }
   }, 180)
 }
 function remember(before: Board | null, after: Board | null) {
@@ -242,7 +246,7 @@ async function copy(value: string) {
 }
 function exportBoard() {
   const board = selected(); if (!board) return
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(board.name)}</title></head><body style="margin:0">${board.html}</body></html>`
+  const html = exportDocument(board.html, board.name, state?.workspace.tokens)
   const filename = `${board.name.replace(/[^a-z0-9_-]+/gi, "-").slice(0, 80) || "canvas"}.html`
   const bridge = window.webkit?.messageHandlers?.blackboard
   if (bridge) bridge.postMessage({ type: "export", filename, html })
@@ -251,12 +255,26 @@ function exportBoard() {
     link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 }
+let previewId: string | null = null
+function renderPreview() {
+  const dialog = element<HTMLDialogElement>("preview-dialog")
+  if (!dialog.open) return
+  const board = state?.workspace.boards.find(board => board.id === previewId)
+  if (!board) { dialog.close(); return }
+  const iframe = element("preview-holder").querySelector("iframe")
+  if (!iframe) return
+  element("preview-name").textContent = `${board.name} · ${board.width} × ${board.height}`
+  iframe.style.width = `${board.width}px`; iframe.style.height = `${board.height}px`
+  const html = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, state?.workspace.tokens)
+  if (iframe.srcdoc !== html) iframe.srcdoc = html
+}
 function showPreview() {
   const board = selected(); if (!board) return
+  previewId = board.id
   element("preview-name").textContent = `${board.name} · ${board.width} × ${board.height}`
   const iframe = document.createElement("iframe"); iframe.title = `${board.name} preview`; iframe.setAttribute("sandbox", ""); iframe.setAttribute("referrerpolicy", "no-referrer")
   iframe.style.width = `${board.width}px`; iframe.style.height = `${board.height}px`
-  iframe.srcdoc = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html)
+  iframe.srcdoc = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, state?.workspace.tokens)
   element("preview-holder").replaceChildren(iframe); element<HTMLDialogElement>("preview-dialog").showModal()
 }
 function showAgent() {
@@ -337,6 +355,7 @@ window.addEventListener("blur", () => { space = false; viewport.classList.toggle
 window.addEventListener("beforeunload", event => { if (editor?.dirty || pendingWrites) { event.preventDefault(); event.returnValue = "" } })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-tool]")) button.addEventListener("click", () => { const value = button.dataset.tool; if (value === "select" || value === "hand" || value === "frame") setTool(value) })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-close]")) button.addEventListener("click", () => element<HTMLDialogElement>(button.dataset.close ?? "").close())
+const tokenPanel = createTokenPanel({ workspace: () => state?.workspace, request: api, refresh, copy, notify: toast })
 const actions: Record<string, () => void> = {
   "add-board": () => perform(() => createBoard()), "empty-add": () => perform(() => createBoard()),
   "zoom-in": () => setZoom(camera.zoom * 1.25), "zoom-out": () => setZoom(camera.zoom * .8), "zoom-value": () => setZoom(1), "zoom-fit": () => fit(),
@@ -346,7 +365,7 @@ const actions: Record<string, () => void> = {
   "copy-brief": () => perform(async () => {
     const brief = element<HTMLTextAreaElement>("agent-brief").value.trim(); if (!brief) { element("agent-brief").focus(); return }
     const board = selected()
-    await copy(`Use the Blackboard MCP tools to ${board ? `update canvas "${board.name}" (id: ${board.id})` : "create new canvases"}.\n\n${brief}\n\nCall canvas_list_boards first. ${board ? "Read the current HTML with canvas_get_board. Preserve any unrelated design work." : "Place the canvases alongside the existing boards."} Use complete HTML and inline CSS. Render images as embedded data URLs or CSS shapes. Scripts and external resources are disabled in canvas previews. Use canvas_update_board with expectedRevision to avoid overwriting changes. Return the design directly to Blackboard, rather than only describing it.`)
+    await copy(`Use the Blackboard MCP tools to ${board ? `update canvas "${board.name}" (id: ${board.id})` : "create new canvases"}.\n\n${brief}\n\nCall canvas_list_boards and canvas_list_tokens first. Reuse design tokens as var(--token-name); create missing reusable colors, spacing, typography and radii with canvas_upsert_tokens before generating HTML. Preserve unrelated tokens. ${board ? "Read the current HTML with canvas_get_board. Preserve any unrelated design work." : "Place the canvases alongside the existing boards."} Use complete HTML and inline CSS. Render images as embedded data URLs or CSS shapes. Scripts and external resources are disabled in canvas previews. Use expectedRevision for token and canvas edits. Return the design directly to Blackboard, rather than only describing it.`)
     toast("Prompt copied. Paste it into your connected agent.")
   }),
   "updates-button": () => { element<HTMLDialogElement>("update-dialog").showModal(); if (state && ["idle", "up-to-date", "error"].includes(state.update.status)) perform(() => updateAction("check")) },

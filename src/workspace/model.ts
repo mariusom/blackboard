@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { TokenList, tokensCSS, type DesignToken } from "./tokens"
 
 const Coordinate = Schema.Finite.check(Schema.isBetween({ minimum: -100_000, maximum: 100_000 }))
 const Dimension = Schema.Finite.check(Schema.isBetween({ minimum: 120, maximum: 6000 }))
@@ -39,12 +40,20 @@ export const BoardPatch = Schema.Struct({
 export interface BoardPatch extends Schema.Schema.Type<typeof BoardPatch> {}
 export const DeleteBoard = Schema.Struct({ expectedRevision: Schema.optionalKey(Schema.Int) })
 
-export const Workspace = Schema.Struct({
+export const LegacyWorkspace = Schema.Struct({
   version: Schema.Literal(1),
   name: Name,
   boards: Schema.Array(Board).check(Schema.isMaxLength(200)),
 })
+export interface LegacyWorkspace extends Schema.Schema.Type<typeof LegacyWorkspace> {}
+export const Workspace = Schema.Struct({
+  version: Schema.Literal(2), name: Name,
+  boards: LegacyWorkspace.fields.boards,
+  tokens: TokenList,
+  tokensRevision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+})
 export interface Workspace extends Schema.Schema.Type<typeof Workspace> {}
+export const SavedWorkspace = Schema.Union([LegacyWorkspace, Workspace])
 
 declare const WorkspaceErrorBrand: unique symbol
 export class WorkspaceError extends Schema.TaggedError<WorkspaceError, { readonly brand: typeof WorkspaceErrorBrand }>()("WorkspaceError", {
@@ -72,6 +81,11 @@ export function fitBoards(boards: readonly Board[], width: number, height: numbe
 
 /** Boards never inherit the app's origin or scripting authority. This policy also
  * prevents remote fonts/images, forms, and nested documents from sending content. */
-export function previewDocument(html: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}</style></head><body>${html}</body></html>`
+export function previewDocument(html: string, tokens: readonly DesignToken[] = []): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}${tokensCSS(tokens)}</style></head><body>${html}</body></html>`
+}
+
+export function exportDocument(html: string, title: string, tokens: readonly DesignToken[] = []): string {
+  const safeTitle = title.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character))
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle}</title><style data-blackboard-tokens>${tokensCSS(tokens)}</style></head><body style="margin:0">${html}</body></html>`
 }

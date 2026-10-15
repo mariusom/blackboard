@@ -4,6 +4,7 @@ import { UpdateService, type UpdateDependencies } from "../services/UpdateServic
 import { BoardPatch, CreateBoard, DeleteBoard, WorkspaceError } from "./model"
 import { WorkspaceService } from "./WorkspaceService"
 import { makeUpdatePreview } from "./updatePreview"
+import { DeleteToken, UpsertTokens } from "./tokens"
 import html from "../web/index.html" with { type: "text" }
 import css from "../web/style.css" with { type: "text" }
 
@@ -74,6 +75,7 @@ export async function startWorkspaceServer(options: {
         if (url.pathname === "/client.js") return new Response(script, { headers: { "Content-Type": "text/javascript; charset=utf-8" } })
         if (url.pathname === "/style.css") return new Response(css, { headers: { "Content-Type": "text/css; charset=utf-8" } })
         if (url.pathname === "/api/state") return json(await getState())
+        if (url.pathname === "/api/tokens") return execute(Effect.flatMap(WorkspaceService, workspace => workspace.getTokens))
         if (url.pathname === "/api/events") {
           let subscriber: ReadableStreamDefaultController<Uint8Array>
           const body = new ReadableStream<Uint8Array>({
@@ -89,6 +91,13 @@ export async function startWorkspaceServer(options: {
         if (url.pathname === "/api/boards") return execute(Effect.gen(function* () {
           const input = yield* decode(CreateBoard, body)
           return yield* (yield* WorkspaceService).create(input)
+        }))
+        if (url.pathname === "/api/tokens") return execute(Effect.gen(function* () {
+          return yield* (yield* WorkspaceService).upsertTokens(yield* decode(UpsertTokens, body))
+        }))
+        if (url.pathname === "/api/tokens/delete") return execute(Effect.gen(function* () {
+          const input = yield* decode(DeleteToken, body)
+          return yield* (yield* WorkspaceService).deleteToken(input.name, input.expectedRevision)
         }))
         if (url.pathname === "/api/workspace") return execute(Effect.gen(function* () {
           const input = yield* decode(Schema.Struct({ name: Schema.String }), body)
