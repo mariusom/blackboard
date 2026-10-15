@@ -11,8 +11,12 @@
     "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
-    "test": "bun test",
+    "test": "bun ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "bun ./node_modules/vitest/vitest.mjs",
     "mcp": "bun src/mcp-main.ts",
     "mcp:dev": "bun --hot src/mcp-main.ts",
     "bump": "bun scripts/bump-version.ts",
@@ -26,7 +30,11 @@
   },
   "devDependencies": {
     "@effect/tsgo": "^0.53.0",
+    "@effect/vitest": "^4.0.4",
     "@types/bun": "^1.4.3",
-    "typescript": "^7.0.2"
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
   }
 }

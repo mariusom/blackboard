@@ -78,13 +78,17 @@ Requires an Apple Silicon Mac, Xcode Command Line Tools, Bun 1.4.3, and pnpm 12.
 ```bash
 pnpm install
 bun run dev
+pnpm run lint
+pnpm run format:check
 pnpm run typecheck
 pnpm run check:effect
-bun test
+pnpm run test
 bun run build
 ```
 
-`bun run dev` compiles the small Swift WebKit host and starts the workspace. Build output contains `dist/blackboard` (Bun backend and MCP entrypoint) and `dist/blackboard-webkit` (native window). The frontend is bundled into the backend executable.
+`bun run dev` compiles the small Swift WebKit host and starts the workspace. Tests run with [vitest](https://vitest.dev) (executed under Bun, since the server exercises `Bun.build` and `Bun.serve`) and use [`@effect/vitest`](https://effect.website/docs/v4/api/vitest) for Effect-based tests. Linting is [oxlint](https://oxc.rs/docs/guide/usage/linter) and formatting is [oxfmt](https://oxc.rs/docs/guide/usage/formatter); run `pnpm run format` to format `src`, `scripts`, `tests`, and the root `*.ts` files.
+
+Build output contains `dist/blackboard` (Bun backend and MCP entrypoint) and `dist/blackboard-webkit` (native window). The frontend is bundled into the backend executable.
 
 For an isolated development workspace:
 
