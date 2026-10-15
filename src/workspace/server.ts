@@ -50,6 +50,8 @@ export async function startWorkspaceServer(options: {
   const decode = <A>(schema: Schema.Decoder<A>, input: unknown) => Schema.decodeUnknownEffect(schema)(input).pipe(
     Effect.mapError(() => new WorkspaceError({ code: "invalid", message: "Invalid request. Check the canvas dimensions and content." })),
   )
+  // A malformed percent-encoding must be a request error, not an uncaught defect.
+  const decodeId = (value: string) => { try { return decodeURIComponent(value) } catch { return null } }
   const execute = async <A, E>(effect: Effect.Effect<A, E, WorkspaceService | UpdateService>) => {
     const result = await runtime.runPromise(Effect.result(effect))
     if (result._tag === "Success") return json(result.success ?? { ok: true })
@@ -84,7 +86,9 @@ export async function startWorkspaceServer(options: {
         }))))
         const boardMatch = /^\/api\/boards\/([^/]+)$/.exec(url.pathname)
         if (boardMatch) return execute(Effect.gen(function* () {
-          const board = (yield* (yield* WorkspaceService).get).boards.find(b => b.id === decodeURIComponent(boardMatch[1]))
+          const id = decodeId(boardMatch[1])
+          if (id === null) return yield* new WorkspaceError({ code: "invalid", message: "Invalid canvas id." })
+          const board = (yield* (yield* WorkspaceService).get).boards.find(b => b.id === id)
           if (!board) return yield* new WorkspaceError({ code: "missing", message: "This canvas no longer exists." })
           return board
         }))
@@ -119,8 +123,10 @@ export async function startWorkspaceServer(options: {
         const match = /^\/api\/boards\/([^/]+)(\/delete)?$/.exec(url.pathname)
         if (match) return execute(Effect.gen(function* () {
           const service = yield* WorkspaceService
-          if (match[2]) return yield* service.remove(decodeURIComponent(match[1]), (yield* decode(DeleteBoard, body)).expectedRevision)
-          return yield* service.update(decodeURIComponent(match[1]), yield* decode(BoardPatch, body))
+          const id = decodeId(match[1])
+          if (id === null) return yield* new WorkspaceError({ code: "invalid", message: "Invalid canvas id." })
+          if (match[2]) return yield* service.remove(id, (yield* decode(DeleteBoard, body)).expectedRevision)
+          return yield* service.update(id, yield* decode(BoardPatch, body))
         }))
         if (url.pathname === "/api/updates/check") return execute(Effect.flatMap(UpdateService, u => u.checkForUpdates))
         if (url.pathname === "/api/updates/replay" && preview) return execute(preview.reset)
@@ -134,15 +140,20 @@ export async function startWorkspaceServer(options: {
   })
   const abort = new AbortController()
   const broadcast = async () => {
-    const state = await getState()
-    for (const subscriber of subscribers) {
-      const seen = lastSent.get(subscriber) ?? new Map<string, number>()
-      const boards = state.workspace.boards.map(board => seen.get(board.id) === board.revision ? { ...board, html: null } : board)
-      for (const board of state.workspace.boards) seen.set(board.id, board.revision)
-      lastSent.set(subscriber, seen)
-      try { subscriber.enqueue(encoder.encode(`data: ${JSON.stringify({ ...state, workspace: { ...state.workspace, boards } })}\n\n`)) }
-      catch { subscribers.delete(subscriber); lastSent.delete(subscriber) }
-    }
+    try {
+      const state = await getState()
+      const ids = new Set(state.workspace.boards.map(board => board.id))
+      for (const subscriber of subscribers) {
+        const seen = lastSent.get(subscriber) ?? new Map<string, number>()
+        const boards = state.workspace.boards.map(board => seen.get(board.id) === board.revision ? { ...board, html: null } : board)
+        for (const id of seen.keys()) if (!ids.has(id)) seen.delete(id)
+        for (const board of state.workspace.boards) seen.set(board.id, board.revision)
+        lastSent.set(subscriber, seen)
+        try { subscriber.enqueue(encoder.encode(`data: ${JSON.stringify({ ...state, workspace: { ...state.workspace, boards } })}\n\n`)) }
+        catch { subscribers.delete(subscriber); lastSent.delete(subscriber) }
+      }
+    // A single failed frame must not end the change stream and silence updates.
+    } catch (error) { console.error(error) }
   }
   const watch = (effect: Effect.Effect<void, never, WorkspaceService | UpdateService>) => {
     void runtime.runPromise(effect, { signal: abort.signal }).catch(error => { if (!abort.signal.aborted) console.error(error) })

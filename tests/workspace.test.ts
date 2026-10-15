@@ -78,16 +78,20 @@ it("rejects a workspace that grows past the storage budget without changing live
   } finally { await runtime.dispose() }
 })
 
-it("restores HTML omitted from a streamed frame using the client's last copy", () => {
+it("restores omitted streamed HTML and ignores out-of-order frames", () => {
   const board = { ...input, id: "a", x: 0, y: 0, revision: 3 }
   const base = { workspace: { version: 2, name: "Test", boards: [board], tokens: [], tokensRevision: 0 }, update: INITIAL_UPDATE_INFO, version: "1", agent: { command: "bun", args: [] }, updatePreview: false }
   const previous = Schema.decodeUnknownSync(WorkspaceState)(base)
-  const omitted = Schema.decodeUnknownSync(StreamedWorkspaceState)({ ...base, workspace: { ...base.workspace, boards: [{ ...board, revision: 4, html: null }] } })
-  const merged = mergeStreamedState(previous, omitted)
+  const frame = (over: { html?: string | null; revision?: number }) => Schema.decodeUnknownSync(StreamedWorkspaceState)({ ...base, workspace: { ...base.workspace, boards: [{ ...board, ...over }] } })
+  const merged = mergeStreamedState(previous, frame({ html: null }))
   expect(merged.workspace.boards[0].html).toBe("<h1>Hello</h1>")
-  expect(merged.workspace.boards[0].revision).toBe(4)
-  const fresh = Schema.decodeUnknownSync(StreamedWorkspaceState)({ ...base, workspace: { ...base.workspace, boards: [{ ...board, revision: 4, html: "<h1>Fresh</h1>" }] } })
+  expect(merged.workspace.boards[0].revision).toBe(3)
+  const fresh = frame({ revision: 4, html: "<h1>Fresh</h1>" })
   expect(mergeStreamedState(previous, fresh).workspace.boards[0].html).toBe("<h1>Fresh</h1>")
+  expect(mergeStreamedState(previous, fresh).workspace.boards[0].revision).toBe(4)
+  const stale = mergeStreamedState(previous, frame({ revision: 2, html: "<h1>Old</h1>" }))
+  expect(stale.workspace.boards[0].revision).toBe(3)
+  expect(stale.workspace.boards[0].html).toBe("<h1>Hello</h1>")
   expect(mergeStreamedState(undefined, fresh).workspace.boards[0].html).toBe("<h1>Fresh</h1>")
 })
 

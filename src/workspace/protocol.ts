@@ -21,12 +21,15 @@ export const StreamedWorkspaceState = Schema.Struct({
 })
 export interface StreamedWorkspaceState extends Schema.Schema.Type<typeof StreamedWorkspaceState> {}
 
-/** Restore the HTML omitted from a streamed frame using the client's last copy. */
+/** Restore the HTML omitted from a streamed frame using the client's last copy,
+ * and never regress a board the client already holds at a newer revision
+ * (frames from overlapping broadcasts can arrive out of order). */
 export function mergeStreamedState(previous: WorkspaceState | undefined, next: StreamedWorkspaceState): WorkspaceState {
   const byId = new Map(previous?.workspace.boards.map(board => [board.id, board]))
   const boards: Board[] = next.workspace.boards.map(board => {
-    const { html, ...rest } = board
     const previousBoard = byId.get(board.id)
+    if (previousBoard && previousBoard.revision > board.revision) return previousBoard
+    const { html, ...rest } = board
     return { ...rest, html: html ?? previousBoard?.html ?? "" }
   })
   return { ...next, workspace: { ...next.workspace, boards } }
