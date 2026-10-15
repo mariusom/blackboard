@@ -61,7 +61,7 @@ const lengthTypes = new Set<TokenType>(["spacing", "radius", "font-size"])
 const compatible = (a: TokenType, b: TokenType) => a === b || (lengthTypes.has(a) && lengthTypes.has(b))
 function validLiteral(type: TokenType, value: string) {
   // Values cannot terminate a CSS declaration or introduce HTML, imports, or URLs.
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters must never reach a CSS value
+  // oxlint-disable-next-line no-control-regex -- control characters must never reach a CSS value
   if (/[;{}<>\\@\x00-\x1f]/.test(value)) return false
   if (type === "color") return /^(?:#[0-9a-f]{3}|#[0-9a-f]{4}|#[0-9a-f]{6}|#[0-9a-f]{8}|transparent|black|white)$/i.test(value)
   if (lengthTypes.has(type)) return /^(?:0|(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em|%))$/.test(value)
