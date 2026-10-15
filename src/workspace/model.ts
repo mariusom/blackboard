@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { TokenList, tokensCSS, type DesignToken } from "./tokens"
+import { TokenList, documentTokens, tokensCSS, type DesignToken } from "./tokens"
 
 const Coordinate = Schema.Finite.check(Schema.isBetween({ minimum: -100_000, maximum: 100_000 }))
 const Dimension = Schema.Finite.check(Schema.isBetween({ minimum: 120, maximum: 6000 }))
@@ -82,7 +82,7 @@ export function fitBoards(boards: readonly Board[], width: number, height: numbe
 /** Boards never inherit the app's origin or scripting authority. This policy also
  * prevents remote fonts/images, forms, and nested documents from sending content. */
 export function previewDocument(html: string, tokens: readonly DesignToken[] = []): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}${tokensCSS(tokens)}</style></head><body>${html}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}${tokensCSS(documentTokens(html, tokens))}</style></head><body>${html}</body></html>`
 }
 
 export function exportDocument(html: string, title: string, tokens: readonly DesignToken[] = []): string {

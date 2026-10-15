@@ -1,6 +1,9 @@
 import { Schema } from "effect"
 import { Board, clampZoom, exportDocument, fitBoards, previewDocument, zoomAt, type BoardPatch, type Camera } from "../workspace/model"
 import { createTokenPanel } from "./tokens"
+import { AgentFormat, buildAgentPrompt } from "./agentPrompt"
+import { createDOMPreview } from "./preview"
+import { tokenReferences, type DesignToken } from "../workspace/tokens"
 import { BLANK_HTML } from "../workspace/templates"
 import { WorkspaceState } from "../workspace/protocol"
 
@@ -37,6 +40,15 @@ const source = element<HTMLTextAreaElement>("html-source")
 let state: WorkspaceState | undefined
 let camera: Camera = { x: 80, y: 110, zoom: .8 }
 let selectedId: string | null = null
+let inspectorMode: "canvas" | "token" | "agent" | null = "canvas"
+let libraryTab: "canvases" | "tokens" = "canvases"
+let previewTokens: readonly DesignToken[] | undefined
+let previewRevision = 0
+let propertySaving = false
+let awaitingAgent = false
+let layoutReady = false
+const currentTokens = () => previewTokens ?? state?.workspace.tokens
+const tokensKey = () => `${state?.workspace.tokensRevision}:${previewRevision}`
 let tool: "select" | "hand" | "frame" = "select"
 let space = false
 let connected = true
@@ -46,7 +58,7 @@ let editor: { id: string; revision: number; dirty: boolean } | null = null
 window.blackboardHasUnsavedChanges = () => Boolean(editor?.dirty || tokenPanel.hasUnsavedChanges() || pendingWrites)
 let toastTimer: ReturnType<typeof setTimeout>
 let liveTimer: ReturnType<typeof setTimeout>
-const views = new Map<string, { node: HTMLElement; iframe: HTMLIFrameElement; html: string; tokensRevision: number }>()
+const views = new Map<string, { node: HTMLElement; preview: ReturnType<typeof createDOMPreview>; html: string; tokensRevision: string }>()
 type HistoryEntry = { before: Board | null; after: Board | null; id: string; revision: number }
 const undoStack: HistoryEntry[] = []
 const redoStack: HistoryEntry[] = []
@@ -75,7 +87,16 @@ async function api(path: string, body?: unknown): Promise<unknown> {
 const perform = (action: () => Promise<unknown>) => { void action().catch(error => toast(error instanceof Error ? error.message : "The action failed.")) }
 async function refresh() { acceptState(Schema.decodeUnknownSync(WorkspaceState)(await api("state"))) }
 function acceptState(next: WorkspaceState) {
+  const before = state
   state = next
+  if (awaitingAgent && before && JSON.stringify(next.workspace.boards) !== JSON.stringify(before.workspace.boards)) {
+    awaitingAgent = false
+    element("agent-handoff-state").textContent = "Canvas updated. Select it in the library to review."
+    element("agent-handoff-state").classList.add("copied")
+    const added = next.workspace.boards.filter(board => !before.workspace.boards.some(previous => previous.id === board.id))
+    if (added.length) fit(added)
+    toast("New design changes arrived in your workspace")
+  }
   if (document.activeElement !== element("workspace-name")) element<HTMLInputElement>("workspace-name").value = next.workspace.name
   renderBoards(); renderUpdate(); renderPreview()
   if (editor && !editor.dirty) {
@@ -87,7 +108,7 @@ function acceptState(next: WorkspaceState) {
     if (editor?.dirty) { element("editor-error").hidden = false; element("editor-error").textContent = "This canvas was removed elsewhere. Copy your draft before closing." }
     else closeEditor()
   }
-  renderSelection(); renderSaveState(); tokenPanel.update()
+  renderSelection(); renderLibrary(); renderInspector(); renderSaveState(); tokenPanel.update()
 }
 function renderCamera() {
   world.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`
@@ -111,17 +132,17 @@ function setTool(next: typeof tool) {
 function renderBoards() {
   if (!state) return
   const ids = new Set(state.workspace.boards.map(b => b.id))
-  for (const [id, view] of views) if (!ids.has(id)) { view.node.remove(); views.delete(id) }
+  for (const [id, view] of views) if (!ids.has(id)) { view.preview.dispose(); view.node.remove(); views.delete(id) }
   for (const [index, board] of state.workspace.boards.entries()) {
     let view = views.get(board.id)
     if (!view) {
       const node = document.createElement("section")
       node.className = "board"; node.dataset.id = board.id; node.setAttribute("aria-label", board.name)
       node.innerHTML = '<div class="board-label"><span class="board-number"></span><span class="board-title"></span><span class="board-size"></span></div><div class="board-surface"></div><button class="resize-handle" aria-label="Resize canvas"></button>'
-      const iframe = document.createElement("iframe")
-      iframe.setAttribute("sandbox", ""); iframe.setAttribute("referrerpolicy", "no-referrer"); iframe.setAttribute("tabindex", "-1")
-      node.querySelector(".board-surface")?.append(iframe); world.append(node)
-      view = { node, iframe, html: "", tokensRevision: -1 }; views.set(board.id, view)
+      const surface = node.querySelector<HTMLElement>(".board-surface")
+      if (!surface) throw new Error("Missing canvas preview surface")
+      world.append(node)
+      view = { node, preview: createDOMPreview(surface), html: "", tokensRevision: "" }; views.set(board.id, view)
     }
     view.node.classList.toggle("selected", board.id === selectedId)
     view.node.style.cssText = `left:${board.x}px;top:${board.y}px;width:${board.width}px;height:${board.height}px`
@@ -129,10 +150,9 @@ function renderBoards() {
     const number = view.node.querySelector(".board-number"); if (number) number.textContent = String(index + 1).padStart(2, "0")
     const title = view.node.querySelector(".board-title"); if (title) title.textContent = board.name
     const size = view.node.querySelector(".board-size"); if (size) size.textContent = `${Math.round(board.width)} × ${Math.round(board.height)}`
-    view.iframe.title = board.name
     const content = editor?.id === board.id && editor.dirty ? source.value : board.html
-    if (view.html !== content || view.tokensRevision !== state.workspace.tokensRevision) {
-      view.iframe.srcdoc = previewDocument(content, state.workspace.tokens); view.html = content; view.tokensRevision = state.workspace.tokensRevision
+    if (view.html !== content || view.tokensRevision !== tokensKey()) {
+      view.preview.render(previewDocument(content, currentTokens()), board.name); view.html = content; view.tokensRevision = tokensKey()
     }
   }
   element("empty").hidden = state.workspace.boards.length !== 0
@@ -146,7 +166,7 @@ function renderSelection() {
 function select(id: string | null) {
   if (id !== selectedId && editor?.dirty && !window.confirm("Discard your unsaved HTML draft?")) return false
   if (id !== selectedId && editor) closeEditor(true)
-  selectedId = id; renderSelection(); return true
+  selectedId = id; inspectorMode = id ? "canvas" : state?.workspace.boards.length ? "canvas" : "agent"; renderSelection(); renderLibrary(); renderInspector(); return true
 }
 function loadEditor(board: Board) {
   editor = { id: board.id, revision: board.revision, dirty: false }
@@ -160,7 +180,7 @@ function openEditor() {
   const board = selected(); if (!board) return
   if (editor?.id !== board.id) loadEditor(board)
   element("editor").hidden = false; document.body.classList.add("editing")
-  fit([board])
+  renderInspector(); fit([board])
 }
 function closeEditor(force = false) {
   if (!force && editor?.dirty && !window.confirm("Discard your unsaved HTML draft?")) return false
@@ -168,7 +188,7 @@ function closeEditor(force = false) {
   const id = editor?.id
   editor = null; element("editor").hidden = true; document.body.classList.remove("editing")
   if (id) { const view = views.get(id); if (view) view.html = "" }
-  renderBoards(); return true
+  renderBoards(); renderInspector(); return true
 }
 function markDirty() {
   if (!editor) return
@@ -176,7 +196,7 @@ function markDirty() {
   clearTimeout(liveTimer)
   liveTimer = setTimeout(() => {
     const view = editor && views.get(editor.id)
-    if (view) { view.iframe.srcdoc = previewDocument(source.value, state?.workspace.tokens); view.html = source.value }
+    if (view) { view.preview.render(previewDocument(source.value, currentTokens()), editor?.id === selectedId ? selected()?.name ?? "Canvas" : "Canvas"); view.html = source.value }
   }, 180)
 }
 function remember(before: Board | null, after: Board | null) {
@@ -185,7 +205,9 @@ function remember(before: Board | null, after: Board | null) {
 }
 async function updateBoard(board: Board, patch: BoardPatch) {
   const after = Schema.decodeUnknownSync(Board)(await api(`boards/${encodeURIComponent(board.id)}`, { ...patch, expectedRevision: board.revision }))
-  remember(board, after); await refresh(); return after
+  remember(board, after)
+  if (editor?.id === board.id && editor.dirty && patch.html === undefined && patch.name === undefined && patch.width === undefined && patch.height === undefined) editor.revision = after.revision
+  await refresh(); return after
 }
 async function saveSource() {
   if (!editor || !state) return
@@ -205,7 +227,7 @@ async function createBoard(input?: { x: number; y: number; width: number; height
   if (!select(null)) return
   const bounds = input ?? { x: (viewport.clientWidth / 2 - camera.x) / camera.zoom - 380, y: (viewport.clientHeight / 2 - camera.y) / camera.zoom - 280, width: 760, height: 560 }
   const board = Schema.decodeUnknownSync(Board)(await api("boards", { name: `Untitled canvas ${(state?.workspace.boards.length ?? 0) + 1}`, html: BLANK_HTML, ...bounds }))
-  remember(null, board); await refresh(); select(board.id); setTool("select"); openEditor(); fit([board])
+  remember(null, board); await refresh(); select(board.id); setTool("select"); fit([board])
 }
 async function duplicateBoard() {
   const before = selected(); if (!before || !select(null)) return
@@ -245,6 +267,7 @@ async function copy(value: string) {
   }
 }
 function exportBoard() {
+  if (window.blackboardHasUnsavedChanges?.()) { toast("Save your drafts before exporting."); return }
   const board = selected(); if (!board) return
   const html = exportDocument(board.html, board.name, state?.workspace.tokens)
   const filename = `${board.name.replace(/[^a-z0-9_-]+/gi, "-").slice(0, 80) || "canvas"}.html`
@@ -256,31 +279,112 @@ function exportBoard() {
   }
 }
 let previewId: string | null = null
+let fullPreview: ReturnType<typeof createDOMPreview> | undefined
+let fullPreviewSurface: HTMLElement | undefined
 function renderPreview() {
   const dialog = element<HTMLDialogElement>("preview-dialog")
   if (!dialog.open) return
   const board = state?.workspace.boards.find(board => board.id === previewId)
   if (!board) { dialog.close(); return }
-  const iframe = element("preview-holder").querySelector("iframe")
-  if (!iframe) return
+  if (!fullPreview || !fullPreviewSurface) return
   element("preview-name").textContent = `${board.name} · ${board.width} × ${board.height}`
-  iframe.style.width = `${board.width}px`; iframe.style.height = `${board.height}px`
-  const html = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, state?.workspace.tokens)
-  if (iframe.srcdoc !== html) iframe.srcdoc = html
+  fullPreviewSurface.style.width = `${board.width}px`; fullPreviewSurface.style.height = `${board.height}px`
+  const html = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, currentTokens())
+  fullPreview.render(html, `${board.name} preview`)
 }
 function showPreview() {
   const board = selected(); if (!board) return
   previewId = board.id
   element("preview-name").textContent = `${board.name} · ${board.width} × ${board.height}`
-  const iframe = document.createElement("iframe"); iframe.title = `${board.name} preview`; iframe.setAttribute("sandbox", ""); iframe.setAttribute("referrerpolicy", "no-referrer")
-  iframe.style.width = `${board.width}px`; iframe.style.height = `${board.height}px`
-  iframe.srcdoc = previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, state?.workspace.tokens)
-  element("preview-holder").replaceChildren(iframe); element<HTMLDialogElement>("preview-dialog").showModal()
+  fullPreview?.dispose()
+  fullPreviewSurface = document.createElement("div"); fullPreviewSurface.className = "preview-surface"
+  fullPreviewSurface.style.width = `${board.width}px`; fullPreviewSurface.style.height = `${board.height}px`
+  fullPreview = createDOMPreview(fullPreviewSurface)
+  fullPreview.render(previewDocument(editor?.dirty && editor.id === board.id ? source.value : board.html, currentTokens()), `${board.name} preview`)
+  element("preview-holder").replaceChildren(fullPreviewSurface); element<HTMLDialogElement>("preview-dialog").showModal()
 }
-function showAgent() {
-  element("agent-command").textContent = state ? [state.agent.command, ...state.agent.args].map(s => /\s/.test(s) ? JSON.stringify(s) : s).join(" ") : ""
-  element("agent-target").textContent = selected() ? `Canvas: ${selected()?.name}` : "Create new canvases"
-  element<HTMLDialogElement>("agent-dialog").showModal()
+element<HTMLDialogElement>("preview-dialog").addEventListener("close", () => {
+  fullPreview?.dispose(); fullPreview = undefined; fullPreviewSurface = undefined; previewId = null
+  element("preview-holder").replaceChildren()
+})
+function activateLibrary(tab: typeof libraryTab) {
+  libraryTab = tab
+  document.body.classList.remove("library-collapsed"); element("library").hidden = false
+  element("library-toggle").setAttribute("aria-expanded", "true")
+  element("canvases-panel").hidden = tab !== "canvases"; element("tokens-sidebar").hidden = tab !== "tokens"
+  element("canvases-button").setAttribute("aria-selected", String(tab === "canvases"))
+  element("tokens-button").setAttribute("aria-selected", String(tab === "tokens"))
+  element("canvases-button").tabIndex = tab === "canvases" ? 0 : -1
+  element("tokens-button").tabIndex = tab === "tokens" ? 0 : -1
+  if (tab === "tokens") tokenPanel.update()
+}
+function activateInspector(mode: typeof inspectorMode) {
+  if (editor && !closeEditor()) return false
+  inspectorMode = mode; renderInspector(); return true
+}
+function renderLibrary() {
+  if (!state) return
+  element("canvas-total").textContent = String(state.workspace.boards.length)
+  element("token-total").textContent = String(state.workspace.tokens.length)
+  element("app-version").textContent = `v${state.version}`
+  element("stage-label").textContent = state.workspace.boards.length ? "DESIGN EXPLORATIONS" : "YOUR WORKSPACE"
+  element("stage-count").textContent = `${state.workspace.boards.length} canvas${state.workspace.boards.length === 1 ? "" : "es"}`
+  const list = element("canvas-list"); list.replaceChildren()
+  const query = element<HTMLInputElement>("canvas-search").value.trim().toLowerCase()
+  const boards = state.workspace.boards.filter(board => board.name.toLowerCase().includes(query))
+  for (const board of boards) {
+    const row = document.createElement("button"); row.className = "canvas-row"; row.type = "button"
+    row.classList.toggle("active", board.id === selectedId); row.setAttribute("aria-label", `Select ${board.name}`); row.setAttribute("aria-pressed", String(board.id === selectedId))
+    row.innerHTML = `<span class="canvas-icon">${board.width < board.height ? "▯" : "▤"}</span><span class="canvas-label">${escape(board.name)}</span><small>${board.width} × ${board.height}</small>`
+    row.addEventListener("click", () => { if (select(board.id)) fit([board]) })
+    list.append(row)
+  }
+  if (!boards.length) { const empty = document.createElement("p"); empty.className = "library-empty"; empty.textContent = query ? "No matching canvases." : "Your canvases will appear here. Start with a frame or an idea."; list.append(empty) }
+  element<HTMLButtonElement>("undo-button").disabled = !undoStack.length
+  element<HTMLButtonElement>("redo-button").disabled = !redoStack.length
+}
+function renderInspector() {
+  const board = selected()
+  document.body.classList.toggle("inspector-hidden", !editor && inspectorMode === null)
+  element("canvas-inspector").hidden = Boolean(editor) || inspectorMode !== "canvas"
+  element("token-inspector").hidden = Boolean(editor) || inspectorMode !== "token"
+  element("agent-panel").hidden = Boolean(editor) || inspectorMode !== "agent"
+  element("no-selection").hidden = Boolean(board); element("canvas-properties").hidden = !board
+  for (const id of ["header-preview", "header-export"]) element<HTMLButtonElement>(id).disabled = !board
+  element("agent-button").setAttribute("aria-pressed", String(inspectorMode === "agent" && !editor))
+  element("agent-command").textContent = state ? [state.agent.command, ...state.agent.args].map(value => /\s/.test(value) ? JSON.stringify(value) : value).join(" ") : ""
+  element("agent-token-count").textContent = `◈ ${state?.workspace.tokens.length ?? 0} shared tokens`
+  element("agent-target").textContent = board ? `Canvas: ${board.name}` : "New canvases"
+  if (!board) return
+  element("inspector-name").textContent = board.name
+  const values = { "property-name": board.name, "property-x": board.x, "property-y": board.y, "property-width": board.width, "property-height": board.height }
+  for (const [id, value] of Object.entries(values)) { const input = element<HTMLInputElement>(id); if (document.activeElement !== input) input.value = String(value); input.disabled = propertySaving }
+  element<HTMLSelectElement>("canvas-preset").disabled = propertySaving
+  if (document.activeElement !== element("canvas-preset")) element<HTMLSelectElement>("canvas-preset").value = board.width === 1440 && board.height === 900 ? "desktop" : board.width === 390 && board.height === 844 ? "mobile" : board.width === 768 && board.height === 1024 ? "tablet" : "custom"
+  element("source-snippet").textContent = board.html.length > 200 ? `${board.html.slice(0, 200)}…` : board.html || "This canvas is ready for your HTML."
+  const references = tokenReferences(board.html)
+  element("used-token-count").textContent = String(references.length)
+  const used = element("used-tokens"); used.replaceChildren()
+  for (const name of references) {
+    const chip = document.createElement("button"); chip.className = "token-chip"; chip.textContent = `◈ ${name}`
+    chip.addEventListener("click", () => tokenPanel.selectToken(name)); used.append(chip)
+  }
+  if (!references.length) { const text = document.createElement("p"); text.textContent = "Use var(--token-name) in your CSS to link this canvas to your design system."; used.append(text) }
+}
+async function changeProperty(patch: BoardPatch) {
+  const board = selected(); if (!board || propertySaving) return
+  propertySaving = true; renderInspector(); element("property-error").hidden = true
+  try { await updateBoard(board, patch) }
+  catch (cause) { element("property-error").textContent = cause instanceof Error ? cause.message : "Could not save this canvas."; element("property-error").hidden = false }
+  finally { propertySaving = false; renderInspector() }
+}
+function showAgent() { if (activateInspector("agent")) element("agent-brief").focus() }
+function startDesign(format: "website" | "mobile") {
+  if (!select(null)) return
+  element<HTMLSelectElement>("agent-format").value = format === "website" ? "responsive" : "mobile"
+  const brief = element<HTMLTextAreaElement>("agent-brief")
+  if (!brief.value.trim()) brief.value = format === "website" ? "Design a thoughtful website with a matching mobile version. Reuse my shared design tokens." : "Design a focused mobile app screen. Reuse my shared design tokens."
+  showAgent()
 }
 
 type Gesture = { kind: "pan"; x: number; y: number; camera: Camera } | { kind: "move" | "resize"; x: number; y: number; board: Board } | { kind: "draw"; x: number; y: number }
@@ -289,6 +393,8 @@ const localPoint = (event: { clientX: number; clientY: number }) => { const rect
 function drawBounds(x: number, y: number, endX: number, endY: number) { return { x: (Math.min(x, endX) - camera.x) / camera.zoom, y: (Math.min(y, endY) - camera.y) / camera.zoom, width: Math.max(120, Math.abs(endX - x) / camera.zoom), height: Math.max(120, Math.abs(endY - y) / camera.zoom) } }
 viewport.addEventListener("pointerdown", event => {
   if (event.button !== 0 && event.button !== 1) return
+  const interactive = event.target instanceof Element ? event.target.closest("button,input,select,textarea") : null
+  if (interactive && !interactive.classList.contains("resize-handle")) return
   const point = localPoint(event)
   if (space || tool === "hand" || event.button === 1) { gesture = { kind: "pan", x: event.clientX, y: event.clientY, camera }; viewport.classList.add("panning") }
   else if (tool === "frame") { gesture = { kind: "draw", ...point }; element("draw-ghost").hidden = false }
@@ -335,7 +441,8 @@ viewport.addEventListener("wheel", event => {
   else { camera = { ...camera, x: camera.x - event.deltaX, y: camera.y - event.deltaY }; renderCamera() }
 }, { passive: false })
 document.addEventListener("keydown", event => {
-  const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)
+  const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || (event.target instanceof HTMLElement && event.target.isContentEditable)
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); if (document.body.classList.contains("library-collapsed")) element("library-toggle").click(); element(libraryTab === "tokens" ? "token-search" : "canvas-search").focus(); return }
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && editor) { event.preventDefault(); perform(saveSource); return }
   if (typing || document.querySelector("dialog[open]")) return
   const command = event.metaKey || event.ctrlKey
@@ -355,22 +462,59 @@ window.addEventListener("blur", () => { space = false; viewport.classList.toggle
 window.addEventListener("beforeunload", event => { if (window.blackboardHasUnsavedChanges?.()) { event.preventDefault(); event.returnValue = "" } })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-tool]")) button.addEventListener("click", () => { const value = button.dataset.tool; if (value === "select" || value === "hand" || value === "frame") setTool(value) })
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-close]")) button.addEventListener("click", () => element<HTMLDialogElement>(button.dataset.close ?? "").close())
-const tokenPanel = createTokenPanel({ workspace: () => state?.workspace, request: api, refresh, copy, notify: toast })
+const tokenPanel = createTokenPanel({ workspace: () => state?.workspace, request: api, refresh, copy, notify: toast,
+  onInspect: () => activateInspector("token"), onClose: () => { activateInspector(selected() ? "canvas" : "agent") },
+  onLibrary: () => activateLibrary("tokens"), onSelectBoard: id => { if (select(id)) { const board = selected(); if (board) fit([board]) } },
+  onPreview: tokens => {
+    if (previewTokens === tokens) return
+    previewTokens = tokens; previewRevision++
+    element("token-preview-banner").hidden = !tokens
+    renderBoards(); renderPreview()
+  },
+})
 const actions: Record<string, () => void> = {
   "add-board": () => perform(() => createBoard()), "empty-add": () => perform(() => createBoard()),
+  "library-new": () => perform(() => createBoard()), "tool-new": () => perform(() => createBoard()),
+  "header-preview": showPreview, "header-export": exportBoard, "inspector-edit": openEditor,
+  "inspector-agent": showAgent, "tool-agent": showAgent, "no-selection-agent": showAgent,
+  "close-agent": () => { activateInspector("canvas") }, "collapse-inspector": () => { activateInspector(null) },
+  "undo-button": () => perform(() => historyStep()), "redo-button": () => perform(() => historyStep(true)),
+  "canvases-button": () => activateLibrary("canvases"), "review-token-draft": () => tokenPanel.revealDraft(),
+  "library-toggle": () => { const collapsed = document.body.classList.toggle("library-collapsed"); element("library").hidden = collapsed; element("library-toggle").setAttribute("aria-expanded", String(!collapsed)) },
   "zoom-in": () => setZoom(camera.zoom * 1.25), "zoom-out": () => setZoom(camera.zoom * .8), "zoom-value": () => setZoom(1), "zoom-fit": () => fit(),
   "edit-board": openEditor, "close-editor": () => { closeEditor() }, "save-source": () => perform(saveSource), "duplicate-board": () => perform(duplicateBoard), "delete-board": () => perform(deleteBoard),
   "preview-board": showPreview, "export-board": exportBoard, "agent-button": showAgent,
   "copy-config": () => perform(async () => { if (!state) return; await copy(JSON.stringify({ mcpServers: { blackboard: state.agent } }, null, 2)); toast("MCP configuration copied") }),
   "copy-brief": () => perform(async () => {
+    if (window.blackboardHasUnsavedChanges?.()) { toast("Save or discard your drafts before handing this canvas to your agent."); return }
     const brief = element<HTMLTextAreaElement>("agent-brief").value.trim(); if (!brief) { element("agent-brief").focus(); return }
     const board = selected()
-    await copy(`Use the Blackboard MCP tools to ${board ? `update canvas "${board.name}" (id: ${board.id})` : "create new canvases"}.\n\n${brief}\n\nCall canvas_list_boards and canvas_list_tokens first. Reuse design tokens as var(--token-name); create missing reusable colors, spacing, typography and radii with canvas_upsert_tokens before generating HTML. Preserve unrelated tokens. ${board ? "Read the current HTML with canvas_get_board. Preserve any unrelated design work." : "Place the canvases alongside the existing boards."} Use complete HTML and inline CSS. Render images as embedded data URLs or CSS shapes. Scripts and external resources are disabled in canvas previews. Use expectedRevision for token and canvas edits. Return the design directly to Blackboard, rather than only describing it.`)
-    toast("Prompt copied. Paste it into your connected agent.")
+    const format = Schema.decodeUnknownSync(AgentFormat)(element<HTMLSelectElement>("agent-format").value)
+    await copy(buildAgentPrompt(brief, format, board))
+    awaitingAgent = true
+    element("agent-handoff-state").textContent = "Prompt copied. Paste it into your agent; results will appear here."
+    element("agent-handoff-state").classList.add("copied")
+    toast("Prompt copied. Ready for your connected agent.")
   }),
   "updates-button": () => { element<HTMLDialogElement>("update-dialog").showModal(); if (state && ["idle", "up-to-date", "error"].includes(state.update.status)) perform(() => updateAction("check")) },
 }
 for (const [id, action] of Object.entries(actions)) element(id).addEventListener("click", action)
+element("canvas-search").addEventListener("input", renderLibrary)
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-starter]")) button.addEventListener("click", () => startDesign(button.dataset.starter === "mobile" ? "mobile" : "website"))
+for (const [id, key] of Object.entries({ "property-name": "name", "property-x": "x", "property-y": "y", "property-width": "width", "property-height": "height" })) {
+  element<HTMLInputElement>(id).addEventListener("change", event => {
+    const input = event.currentTarget
+    if (!(input instanceof HTMLInputElement) || !input.reportValidity()) return
+    perform(() => changeProperty({ [key]: key === "name" ? input.value.trim() : Number(input.value) }))
+  })
+}
+element<HTMLSelectElement>("canvas-preset").addEventListener("change", event => {
+  if (!(event.currentTarget instanceof HTMLSelectElement)) return
+  const preset = event.currentTarget.value
+  if (preset === "desktop") perform(() => changeProperty({ width: 1440, height: 900 }))
+  if (preset === "mobile") perform(() => changeProperty({ width: 390, height: 844 }))
+  if (preset === "tablet") perform(() => changeProperty({ width: 768, height: 1024 }))
+})
 for (const id of ["board-name", "board-width", "board-height", "html-source"]) element(id).addEventListener("input", markDirty)
 source.addEventListener("keydown", event => { if (event.key === "Tab") { event.preventDefault(); source.setRangeText("  ", source.selectionStart, source.selectionEnd, "end"); markDirty() } })
 element("workspace-name").addEventListener("change", () => perform(async () => { await api("workspace", { name: element<HTMLInputElement>("workspace-name").value.trim() }); await refresh() }))
@@ -387,7 +531,7 @@ function renderUpdate() {
   const info = state.update
   const preview = state.updatePreview
   element("updates-button").classList.toggle("available", info.hasUpdate)
-  element("updates-button").innerHTML = icon(icons.update) + (info.hasUpdate ? `<span>${info.status === "ready-to-restart" ? "Restart to update" : "Update available"}</span>` : "")
+  element("updates-button").innerHTML = icon(icons.update) + `<span>${info.hasUpdate ? info.status === "ready-to-restart" ? "Restart to update" : "Update available" : info.status === "checking" ? "Checking for updates…" : info.status === "error" ? "Update check failed · Retry" : info.status === "up-to-date" ? "Blackboard is up to date" : "Check for updates"}</span>`
   element("updates-button").setAttribute("aria-label", info.hasUpdate ? `${info.status === "ready-to-restart" ? "Restart to update" : "Update available"} · Blackboard ${info.latestVersion}` : "App updates")
   element("updates-button").title = info.hasUpdate ? `Blackboard ${info.latestVersion} is available` : "App updates"
   element("update-title").textContent = info.status === "ready-to-restart" ? "Ready when you are." : info.hasUpdate ? `Blackboard ${info.latestVersion}` : "App updates"
@@ -416,11 +560,20 @@ function renderUpdate() {
 
 async function start() {
   await refresh()
+  if (state?.workspace.boards.length) { const first = state.workspace.boards[0]; if (first) select(first.id) }
+  else activateInspector("agent")
+  let width = viewport.clientWidth, height = viewport.clientHeight
+  new ResizeObserver(() => {
+    const nextWidth = viewport.clientWidth, nextHeight = viewport.clientHeight
+    if (layoutReady) { camera = { ...camera, x: camera.x + (nextWidth - width) / 2, y: camera.y + (nextHeight - height) / 2 }; renderCamera() }
+    width = nextWidth; height = nextHeight
+  }).observe(viewport)
   try {
     const saved = localStorage.getItem("blackboard-camera")
     if (saved) { const value: unknown = JSON.parse(saved); const parsed = Schema.decodeUnknownSync(Schema.Struct({ x: Schema.Finite, y: Schema.Finite, zoom: Schema.Finite }))(value); camera = { ...parsed, zoom: clampZoom(parsed.zoom) }; renderCamera() }
     else fit()
   } catch { fit() }
+  layoutReady = true
   const events = new EventSource("/api/events")
   events.onopen = () => { connected = true; renderSaveState(); perform(refresh) }
   events.onmessage = event => { try { acceptState(Schema.decodeUnknownSync(WorkspaceState)(JSON.parse(event.data))) } catch { toast("Could not read a workspace update. Reload Blackboard.") } }

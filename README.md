@@ -2,12 +2,12 @@
 
 A macOS canvas for HTML ideas. Arrange desktop pages, mobile screens, and experiments together on one open workspace. Connected coding agents generate real HTML and CSS directly into named canvases through MCP.
 
-The workspace uses the system WebKit renderer inside a native macOS window, with a standard draggable title bar. The old greeting, counter, activity sidebar, fake browser chrome, and protocol footer have been removed.
+The workspace uses the system WebKit renderer inside a native macOS window, with a standard draggable title bar. A searchable library keeps canvases and tokens together on the left; the right inspector follows your selected canvas, token, or agent handoff. Collapse the library or inspector for more canvas space.
 
 ## Working on the canvas
 
-- Create a canvas with **New canvas**, or draw one with the frame tool (**A**).
-- Select and drag canvases to arrange them. Drag the bottom-right handle to resize.
+- Fresh workspaces open empty. Choose **Website** or **App screen** for a guided agent prompt, create a blank canvas with **New canvas**, or draw one with the frame tool (**A**).
+- Find and select canvases in the **Canvases** tab (**⌘ K** to search). Drag canvases to arrange them and the bottom-right handle to resize. Edit names, positions, dimensions, and size presets in the right inspector.
 - Scroll to pan. Hold **Space** or use **H** for the hand tool; **V** returns to selection.
 - Use **⌘ scroll** to zoom around the pointer. **Shift 1** fits all canvases.
 - Double-click a canvas or choose **Edit HTML** for its name, dimensions, and source.
@@ -25,7 +25,11 @@ Invalid saved files are preserved and reported rather than replaced with starter
 
 ## Shared design tokens
 
-Use the **Tokens** sidebar to create and edit workspace-wide colors, spacing, font sizes, font families, font weights, radii, and numbers. The sidebar opens beside the canvas and can be collapsed with the Tokens button. Search the library, expand or collapse its categories, select a token to edit it, and use **All tokens** to return. Use **New token** or a category’s **+** button to add values. Choose **New category** or type a new category name while editing a token; the category is saved with its first token. Categories can contain different token types. Collapsing preserves an unsaved token draft. Reference a token in canvas CSS with `var(--color-brand)` or copy its reference from the library. Saving a value updates every linked canvas and open preview. Exports embed the token CSS so they work independently.
+Use the **Tokens** library tab to create and edit workspace-wide colors, spacing, font sizes, font families, font weights, radii, and numbers. Search or expand its categories, select a token, and edit it in the right inspector while the canvas remains visible. Use **+** to add a token, or **New category** to create a category with its first token. Categories can contain different token types.
+
+Reference a token in canvas CSS with `var(--color-brand)` or copy its reference. Valid draft values preview across linked canvases before saving. **Save token** commits the change; **Discard** restores saved values. Drafts survive changing panels, and exports, agent handoffs, and restarts ask you to save or discard them first. Exports embed the saved token CSS.
+
+Canvas previews keep their current render visible until a replacement has loaded and reached paint, ignore stale loads during rapid edits, and debounce token typing. Incomplete values retain the last valid draft; unrelated token edits leave a canvas’s rendered document unchanged. Both workspace canvases and full-size previews retain the same opaque sandbox and script/network restrictions.
 
 Token names are stable lowercase CSS names. Values support hex colors, CSS lengths (`px`, `rem`, `em`, `%`), font families and weights, numbers, and aliases such as `var(--color-brand)`. Aliases must refer to a compatible type and cannot form a cycle. Tokens used by saved canvases or other tokens cannot be deleted until their references are replaced.
 
@@ -46,7 +50,7 @@ Open **Agent** in Blackboard and copy the MCP configuration. For an installed re
 }
 ```
 
-Keep Blackboard open. The stdio MCP process connects to the same live workspace as the UI; it does not create a separate in-memory canvas. The Agent panel can copy a design prompt targeting the selected canvas.
+Keep Blackboard open. The stdio MCP process connects to the same live workspace as the UI; it does not create a separate in-memory canvas. The Agent inspector can prepare a prompt for the selected canvas or a new desktop/mobile design. Copy the prompt, paste it into your connected agent, and the app highlights arriving canvas changes. Connection settings include the MCP configuration; the app does not claim an agent is connected based only on opening the panel.
 
 Available tools:
 

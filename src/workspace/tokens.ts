@@ -99,6 +99,22 @@ export function tokensCSS(tokens: readonly DesignToken[]): string {
   const error = tokenValidationError(tokens); if (error) throw new Error(error)
   return tokens.length ? `:root {\n${tokens.map(token => `  --${token.name}: ${token.value.trim()};`).join("\n")}\n}` : ""
 }
+/** A draft is local until saved. Invalid drafts never reach CSS rendering. */
+export function previewTokenDraft(tokens: readonly DesignToken[], token: DesignToken, creating: boolean): readonly DesignToken[] | undefined {
+  if (creating && tokens.some(existing => existing.name === token.name)) return undefined
+  const preview = [...tokens.filter(existing => existing.name !== token.name), token]
+  return tokenValidationError(preview) ? undefined : preview
+}
+/** Include only the variables this document reads, plus transitive aliases. */
+export function documentTokens(html: string, tokens: readonly DesignToken[]): readonly DesignToken[] {
+  const required = new Set(tokenReferences(html))
+  const byName = new Map(tokens.map(token => [token.name, token]))
+  for (const name of required) {
+    const token = byName.get(name)
+    if (token) for (const reference of tokenReferences(token.value)) required.add(reference)
+  }
+  return tokens.filter(token => required.has(token.name))
+}
 export function resolvedTokenValue(token: DesignToken, tokens: readonly DesignToken[]): string {
   let value = token.value
   const seen = new Set<string>()

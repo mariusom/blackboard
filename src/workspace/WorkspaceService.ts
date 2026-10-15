@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { Context, Effect, Layer, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
 import { Board, BoardPatch, CreateBoard, SavedWorkspace, Workspace, WorkspaceError, type LegacyWorkspace } from "./model"
-import { INITIAL_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from "./templates"
+import { EMPTY_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from "./templates"
 import { DEFAULT_TOKENS, DeleteToken, TokenList, UpsertTokens, tokenReferences, tokenValidationError, type TokenCollection } from "./tokens"
 
 export interface WorkspaceServiceShape {
@@ -27,7 +27,7 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
         ...saved, version: 2, tokens: DEFAULT_TOKENS, tokensRevision: 0,
         boards: saved.boards.map(board => board.html === LEGACY_STUDIO_HTML ? { ...board, html: STUDIO_HTML, revision: board.revision + 1 } : board),
       }
-      let initial = upgrade(yield* decode(SavedWorkspace, options.initial ?? INITIAL_WORKSPACE))
+      let initial = upgrade(yield* decode(SavedWorkspace, options.initial ?? EMPTY_WORKSPACE))
       const savedPath = options.path
       if (savedPath) {
         const contents = yield* Effect.tryPromise({
