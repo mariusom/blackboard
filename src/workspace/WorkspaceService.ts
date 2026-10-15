@@ -1,9 +1,36 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
 import { dirname } from "node:path"
 import { Context, Effect, Layer, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
 import { Board, BoardPatch, CreateBoard, SavedWorkspace, Workspace, WorkspaceError, type LegacyWorkspace } from "./model"
 import { EMPTY_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from "./templates"
 import { DEFAULT_TOKENS, DeleteToken, TokenList, UpsertTokens, tokenReferences, tokenValidationError, type TokenCollection } from "./tokens"
+
+/** The saved workspace is the app's only durable copy, so commits are made
+ * durable with fsync before the atomic rename, and the previous versions are
+ * kept as a small ring of recovery snapshots. */
+export const WORKSPACE_BACKUP_COUNT = 5
+const backupPath = (filePath: string, index: number) => `${filePath}.${index}.bak`
+const missingFile = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT"
+const moveIfPresent = async (from: string, to: string) => {
+  try { await rename(from, to) } catch (error) { if (!missingFile(error)) throw error }
+}
+async function writeDurably(filePath: string, contents: string) {
+  const handle = await open(filePath, "wx", 0o600)
+  try { await handle.writeFile(contents); await handle.sync() } finally { await handle.close() }
+}
+/** Shift `workspace.json` to `.1.bak` and older snapshots down the ring before
+ * the new file replaces them, so a bad save or unintended agent edit is always
+ * recoverable. Renames only: no copy is made of the previous workspace. */
+export async function rotateWorkspaceBackups(filePath: string) {
+  for (let index = WORKSPACE_BACKUP_COUNT; index >= 2; index--) await moveIfPresent(backupPath(filePath, index - 1), backupPath(filePath, index))
+  await moveIfPresent(filePath, backupPath(filePath, 1))
+}
+/** Directory fsync makes the rename itself durable. Unsupported on some
+ * platforms (notably macOS directories), where the file's own fsync is the
+ * strongest guarantee available, so a failure here is not fatal. */
+async function syncDirectory(directory: string) {
+  try { const handle = await open(directory, "r"); try { await handle.sync() } finally { await handle.close() } } catch {}
+}
 
 export interface WorkspaceServiceShape {
   readonly get: Effect.Effect<Workspace>
@@ -51,14 +78,22 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
       const lock = yield* Semaphore.make(1)
       const commit = Effect.fn("Workspace.commit")(function* (next: Workspace) {
         yield* decode(Workspace, next)
+        const payload = JSON.stringify(next)
         const filePath = options.path
         if (filePath) {
           yield* Effect.tryPromise({
             try: async () => {
               await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
               const temporary = `${filePath}.${crypto.randomUUID()}.tmp`
-              await writeFile(temporary, JSON.stringify(next), { mode: 0o600 })
-              await rename(temporary, filePath)
+              try {
+                await writeDurably(temporary, payload)
+                await rotateWorkspaceBackups(filePath)
+                await rename(temporary, filePath)
+              } catch (error) {
+                await rm(temporary, { force: true }).catch(() => {})
+                throw error
+              }
+              await syncDirectory(dirname(filePath))
             },
             catch: () => new WorkspaceError({ code: "storage", message: "Could not save the workspace. Your change has not been committed." }),
           })

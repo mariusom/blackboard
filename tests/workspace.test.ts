@@ -1,8 +1,8 @@
 import { expect, it } from "bun:test"
 import { Effect, ManagedRuntime, Stream } from "effect"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { WorkspaceService } from "../src/workspace/WorkspaceService"
 import { fitBoards, zoomAt, type Board } from "../src/workspace/model"
 
@@ -60,6 +60,36 @@ it("rejects stale HTML edits while allowing partial geometry changes to preserve
     expect(result.moved.x).toBe(500)
   } finally { await runtime.dispose() }
 })
+
+it("keeps the previous saved versions as a rotating ring of backups", () => withWorkspace(async path => {
+  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
+  try {
+    await runtime.runPromise(Effect.gen(function* () {
+      const workspace = yield* WorkspaceService
+      const board = yield* workspace.create({ ...input, name: "First" })
+      yield* workspace.update(board.id, { name: "Second" })
+      yield* workspace.update(board.id, { name: "Third" })
+    }))
+  } finally { await runtime.dispose() }
+  expect(JSON.parse(await readFile(path, "utf8")).boards[0].name).toBe("Third")
+  expect(JSON.parse(await readFile(`${path}.1.bak`, "utf8")).boards[0].name).toBe("Second")
+  expect(JSON.parse(await readFile(`${path}.2.bak`, "utf8")).boards[0].name).toBe("First")
+}))
+
+it("bounds the backup ring and leaves no temporary files behind", () => withWorkspace(async path => {
+  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
+  try {
+    await runtime.runPromise(Effect.gen(function* () {
+      const workspace = yield* WorkspaceService
+      const board = yield* workspace.create(input)
+      for (let index = 0; index < 8; index++) yield* workspace.update(board.id, { x: index })
+    }))
+  } finally { await runtime.dispose() }
+  const entries = await readdir(dirname(path))
+  expect(entries.filter(name => name.endsWith(".tmp"))).toEqual([])
+  expect(entries).toContain("workspace.json.5.bak")
+  expect(entries).not.toContain("workspace.json.6.bak")
+}))
 
 it("broadcasts committed state to a live canvas subscription", async () => {
   const runtime = ManagedRuntime.make(WorkspaceService.makeLayer())
