@@ -91,6 +91,32 @@ it("restores HTML omitted from a streamed frame using the client's last copy", (
   expect(mergeStreamedState(undefined, fresh).workspace.boards[0].html).toBe("<h1>Fresh</h1>")
 })
 
+it("recovers the newest snapshot when the workspace file is missing", () => withWorkspace(async path => {
+  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
+  try {
+    await runtime.runPromise(Effect.gen(function* () {
+      const workspace = yield* WorkspaceService
+      const board = yield* workspace.create({ ...input, name: "Alpha" })
+      yield* workspace.update(board.id, { name: "Beta" })
+    }))
+  } finally { await runtime.dispose() }
+  await rm(path)
+  const reopened = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
+  try {
+    const saved = await reopened.runPromise(Effect.flatMap(WorkspaceService, w => w.get))
+    expect(saved.boards[0]?.name).toBe("Alpha")
+  } finally { await reopened.dispose() }
+}))
+
+it("rejects an oversized workspace before writing the file or any snapshot", () => withWorkspace(async path => {
+  const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path, maxBytes: 4096 }))
+  try {
+    const failed = await runtime.runPromise(Effect.result(Effect.flatMap(WorkspaceService, w => w.create({ ...input, html: `<!--${"x".repeat(6000)}-->` }))))
+    expect(failed._tag).toBe("Failure")
+  } finally { await runtime.dispose() }
+  expect(await readdir(dirname(path))).toEqual([])
+}))
+
 it("keeps the previous saved versions as a rotating ring of backups", () => withWorkspace(async path => {
   const runtime = ManagedRuntime.make(WorkspaceService.makeLayer({ path }))
   try {

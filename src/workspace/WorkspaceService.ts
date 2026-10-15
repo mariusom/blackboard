@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises"
+import { copyFile, link, mkdir, open, readFile, rename, rm } from "node:fs/promises"
 import { dirname } from "node:path"
 import { Context, Effect, Layer, Schema, Semaphore, type Stream, SubscriptionRef } from "effect"
 import { Board, BoardPatch, CreateBoard, SavedWorkspace, Workspace, WorkspaceError, type LegacyWorkspace } from "./model"
@@ -19,12 +19,29 @@ async function writeDurably(filePath: string, contents: string) {
   const handle = await open(filePath, "wx", 0o600)
   try { await handle.writeFile(contents); await handle.sync() } finally { await handle.close() }
 }
-/** Shift `workspace.json` to `.1.bak` and older snapshots down the ring before
- * the new file replaces them, so a bad save or unintended agent edit is always
- * recoverable. Renames only: no copy is made of the previous workspace. */
+/** Record the current file as `.1.bak` and shift older snapshots down the ring.
+ * The primary is only replaced by the caller's atomic rename: snapshots are
+ * hard links, so rotation never leaves the workspace file missing. */
 export async function rotateWorkspaceBackups(filePath: string) {
   for (let index = WORKSPACE_BACKUP_COUNT; index >= 2; index--) await moveIfPresent(backupPath(filePath, index - 1), backupPath(filePath, index))
-  await moveIfPresent(filePath, backupPath(filePath, 1))
+  await rm(backupPath(filePath, 1), { force: true })
+  await linkOrCopy(filePath, backupPath(filePath, 1))
+}
+/** Hard links are cheap and keep the primary in place, so an interrupted
+ * rotation can never remove the only copy of the workspace. Fall back to a
+ * copy where the filesystem refuses links. */
+async function linkOrCopy(from: string, to: string) {
+  try { await link(from, to); return } catch (error) { if (missingFile(error)) return }
+  try { await copyFile(from, to) } catch (error) { if (!missingFile(error)) throw error }
+}
+/** Read the workspace, falling back to the newest snapshot when the primary is
+ * missing (for example after an interrupted write). */
+async function readSavedWorkspace(filePath: string): Promise<string | null> {
+  try { return await readFile(filePath, "utf8") } catch (error) { if (!missingFile(error)) throw error }
+  for (let index = 1; index <= WORKSPACE_BACKUP_COUNT; index++) {
+    try { return await readFile(backupPath(filePath, index), "utf8") } catch (error) { if (!missingFile(error)) throw error }
+  }
+  return null
 }
 /** Directory fsync makes the rename itself durable. Unsupported on some
  * platforms (notably macOS directories), where the file's own fsync is the
@@ -60,10 +77,7 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
       const savedPath = options.path
       if (savedPath) {
         const contents = yield* Effect.tryPromise({
-          try: async () => {
-            try { return await readFile(savedPath, "utf8") }
-            catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return null; throw error }
-          },
+          try: () => readSavedWorkspace(savedPath),
           catch: () => new WorkspaceError({ code: "storage", message: "Could not read the saved workspace." }),
         })
         if (contents !== null) {
@@ -81,7 +95,7 @@ export class WorkspaceService extends Context.Service<WorkspaceService, Workspac
       const commit = Effect.fn("Workspace.commit")(function* (next: Workspace) {
         yield* decode(Workspace, next)
         const payload = JSON.stringify(next)
-        if (payload.length > maxBytes) return yield* new WorkspaceError({ code: "invalid", message: `The workspace is too large to save (limit ${Math.round(maxBytes / 1024 / 1024)} MB). Remove large canvases before saving.` })
+        if (Buffer.byteLength(payload, "utf8") > maxBytes) return yield* new WorkspaceError({ code: "invalid", message: `The workspace is too large to save (limit ${Math.round(maxBytes / 1024 / 1024)} MB). Remove large canvases before saving.` })
         const filePath = options.path
         if (filePath) {
           yield* Effect.tryPromise({
