@@ -84,6 +84,16 @@ it("keeps update download progress and restart actions functional through the ne
   }, { checkUpdate: async () => ({ version: "9.9.9", format: "app", downloadUrl: "https://example.com/update.app.tar.gz", downloadAndInstall: async () => { started.resolve(); await finish.promise } }), relaunch: async () => { restarts++ } })
 })
 
+it("serves a single canvas by id so an agent read does not download every board", () => fixture(async server => {
+  const post = (path: string, body: unknown) => fetch(server.origin + path, { method: "POST", headers: headers(server.token), body: JSON.stringify(body) })
+  const created = Schema.decodeUnknownSync(Board)(await (await post("/api/boards", { name: "Only me", html: "<h1>One</h1>" })).json())
+  await post("/api/boards", { name: "Another", html: "<h1>Two</h1>" })
+  const read = await fetch(`${server.origin}/api/boards/${created.id}`, { headers: headers(server.token) })
+  expect(read.status).toBe(200)
+  expect(Schema.decodeUnknownSync(Board)(await read.json())).toEqual(created)
+  expect((await fetch(`${server.origin}/api/boards/missing`, { headers: headers(server.token) })).status).toBe(404)
+}))
+
 it("guards canvas deletion behind the revision the agent last read", () => fixture(async (server, root) => {
   const discovery = join(root, "runtime.json")
   await writeFile(discovery, JSON.stringify({ origin: server.origin, token: server.token }))

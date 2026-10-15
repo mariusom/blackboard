@@ -12,6 +12,7 @@ const State = Schema.Struct({ workspace: Workspace })
 
 export class CanvasConnection extends Context.Service<CanvasConnection, {
   readonly list: Effect.Effect<Workspace, WorkspaceError>
+  readonly board: (id: string) => Effect.Effect<Board, WorkspaceError>
   readonly create: (input: CreateBoard) => Effect.Effect<Board, WorkspaceError>
   readonly update: (id: string, patch: BoardPatch) => Effect.Effect<Board, WorkspaceError>
   readonly remove: (id: string, expectedRevision?: number) => Effect.Effect<void, WorkspaceError>
@@ -38,6 +39,7 @@ export class CanvasConnection extends Context.Service<CanvasConnection, {
     })
     return CanvasConnection.of({
       list: request("/api/state", State).pipe(Effect.map(s => s.workspace)),
+      board: Effect.fn("CanvasConnection.board")((id: string) => request(`/api/boards/${encodeURIComponent(id)}`, Board)),
       create: Effect.fn("CanvasConnection.create")((input: CreateBoard) => request("/api/boards", Board, input)),
       update: Effect.fn("CanvasConnection.update")((id: string, patch: BoardPatch) => request(`/api/boards/${encodeURIComponent(id)}`, Board, patch)),
       remove: Effect.fn("CanvasConnection.remove")((id: string, expectedRevision?: number) => request(`/api/boards/${encodeURIComponent(id)}/delete`, Schema.Unknown, expectedRevision === undefined ? {} : { expectedRevision }).pipe(Effect.asVoid)),

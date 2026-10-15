@@ -75,6 +75,12 @@ export async function startWorkspaceServer(options: {
         if (url.pathname === "/client.js") return new Response(script, { headers: { "Content-Type": "text/javascript; charset=utf-8" } })
         if (url.pathname === "/style.css") return new Response(css, { headers: { "Content-Type": "text/css; charset=utf-8" } })
         if (url.pathname === "/api/state") return json(await getState())
+        const boardMatch = /^\/api\/boards\/([^/]+)$/.exec(url.pathname)
+        if (boardMatch) return execute(Effect.gen(function* () {
+          const board = (yield* (yield* WorkspaceService).get).boards.find(b => b.id === decodeURIComponent(boardMatch[1]))
+          if (!board) return yield* new WorkspaceError({ code: "missing", message: "This canvas no longer exists." })
+          return board
+        }))
         if (url.pathname === "/api/tokens") return execute(Effect.flatMap(WorkspaceService, workspace => workspace.getTokens))
         if (url.pathname === "/api/events") {
           let subscriber: ReadableStreamDefaultController<Uint8Array>

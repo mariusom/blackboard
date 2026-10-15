@@ -1,7 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import { McpProtocol, McpServer } from "effect/ai"
 import { APP_VERSION } from "../domain/models"
-import { WorkspaceError } from "../workspace/model"
 import { CanvasConnection } from "../workspace/connection"
 import { CanvasToolkit, CanvasListBoards, CanvasGetBoard, CanvasCreateBoard, CanvasUpdateBoard, CanvasDeleteBoard, CanvasListTokens, CanvasUpsertTokens, CanvasDeleteToken } from "./canvasToolkit"
 
@@ -9,11 +8,7 @@ const CanvasHandlersLive = CanvasToolkit.toLayer(Effect.gen(function* () {
   const connection = yield* CanvasConnection
   return CanvasToolkit.of({
     [CanvasListBoards.name]: () => connection.list,
-    [CanvasGetBoard.name]: ({ id }) => Effect.gen(function* () {
-      const board = (yield* connection.list).boards.find(b => b.id === id)
-      if (!board) return yield* new WorkspaceError({ code: "missing", message: `Canvas '${id}' was not found.` })
-      return board
-    }),
+    [CanvasGetBoard.name]: ({ id }) => connection.board(id),
     [CanvasCreateBoard.name]: input => connection.create(input),
     [CanvasUpdateBoard.name]: ({ id, patch }) => connection.update(id, patch),
     [CanvasDeleteBoard.name]: ({ id, expectedRevision }) => connection.remove(id, expectedRevision).pipe(Effect.as({ removedId: id })),
