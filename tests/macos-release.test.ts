@@ -25,10 +25,23 @@ if name == 'cargo':
         app.mkdir(parents=True)
         (app / 'blackboard').write_text('fixture executable')
         (app / 'blackboard-webkit').write_text('fixture WebKit host')
+        if os.environ.get('RELEASE_TEST_DMG_SPACE') == '1':
+            with (app / 'blackboard').open('wb') as output:
+                output.truncate(100 * 1024 * 1024)
 elif name == 'ditto':
     if args[0] == '-c': pathlib.Path(args[-1]).touch()
     else: shutil.copytree(args[0], args[1])
 elif name == 'hdiutil':
+    if os.environ.get('RELEASE_TEST_DMG_SPACE') == '1':
+        if '-size' not in args or '-fs' not in args or args[args.index('-fs') + 1] != 'HFS+':
+            print('hdiutil: create failed - No space left on device', file=sys.stderr)
+            sys.exit(28)
+        capacity = int(args[args.index('-size') + 1].removesuffix('m')) * 1024 * 1024
+        source = pathlib.Path(args[args.index('-srcfolder') + 1])
+        payload = sum(file.stat().st_size for file in source.rglob('*') if file.is_file() and not file.is_symlink())
+        if capacity < payload + 64 * 1024 * 1024:
+            print('hdiutil: image has insufficient space for payload and filesystem metadata', file=sys.stderr)
+            sys.exit(28)
     pathlib.Path(args[-1]).touch()
 elif name == 'xcrun':
     if args[:2] == ['notarytool', 'submit']:
@@ -49,6 +62,7 @@ interface Scenario {
   readonly target?: ".app" | ".dmg"
   readonly kind?: "network" | "invalid"
   readonly failures?: number
+  readonly requireDmgSpace?: boolean
 }
 interface ToolState {
   readonly calls: string[][]
@@ -87,6 +101,7 @@ async function runRelease(scenario: Scenario = {}) {
         RELEASE_TEST_TARGET: scenario.target ?? ".app",
         RELEASE_TEST_KIND: scenario.kind ?? "network",
         RELEASE_TEST_FAILURES: String(scenario.failures ?? 2),
+        RELEASE_TEST_DMG_SPACE: scenario.requireDmgSpace ? "1" : "0",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -137,4 +152,10 @@ it("does not delay a release when Apple succeeds on the first attempt", async ()
   const result = await runRelease({ failures: 0 })
   expect(result.code, result.stderr).toBe(0)
   expect(result.state.calls.some((call) => call[0] === "sleep")).toBe(false)
+})
+
+it("reserves DMG filesystem space beyond the full uncompressed app payload", async () => {
+  const result = await runRelease({ failures: 0, requireDmgSpace: true })
+  expect(result.code, result.stderr).toBe(0)
+  expect(result.state.calls.some(call => call[0] === "minisign")).toBe(true)
 })

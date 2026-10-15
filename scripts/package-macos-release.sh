@@ -83,7 +83,20 @@ STAGING_PATH=$(mktemp -d "$RUNNER_TEMP/blackboard-dmg.XXXXXX")
 trap 'rm -rf "$STAGING_PATH"' EXIT
 ditto "$APP_PATH" "$STAGING_PATH/Blackboard.app"
 ln -s /Applications "$STAGING_PATH/Applications"
-hdiutil create -volname Blackboard -srcfolder "$STAGING_PATH" -ov -format UDZO "$DMG_PATH"
+# hdiutil's automatic estimate can under-size the image and fail while copying
+# the executable even when the host has free space. Count logical file bytes
+# (including sparse files), then reserve filesystem metadata and growth room.
+DMG_SIZE_MB=$(python3 - "$STAGING_PATH" <<'PY'
+import os, sys
+mib = 1024 * 1024
+payload = sum(os.lstat(os.path.join(directory, name)).st_size
+              for directory, _, files in os.walk(sys.argv[1]) for name in files)
+print((payload + payload // 4 + 64 * mib + mib - 1) // mib)
+PY
+)
+printf 'Creating %s MiB HFS+ image for the complete application bundle.\n' "$DMG_SIZE_MB"
+hdiutil create -size "${DMG_SIZE_MB}m" -fs HFS+ -volname Blackboard \
+  -srcfolder "$STAGING_PATH" -ov -format UDZO "$DMG_PATH"
 codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
 notarize "$DMG_PATH"
 codesign --verify --strict --verbose=2 "$DMG_PATH"
