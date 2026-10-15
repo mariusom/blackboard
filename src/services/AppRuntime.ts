@@ -4,13 +4,15 @@ import { CounterService } from "./CounterService"
 import { ActivityService } from "./ActivityService"
 import { ThemeService } from "./ThemeService"
 import { UpdateService } from "./UpdateService"
+import { CanvasService } from "./CanvasService"
 
 export const AppLiveLayer = Layer.mergeAll(
   GreetingService.layer,
   CounterService.layer,
   ActivityService.layer,
   ThemeService.layer,
-  UpdateService.layer
+  UpdateService.layer,
+  CanvasService.layer
 )
 
 export type AppServices =
@@ -19,5 +21,6 @@ export type AppServices =
   | ActivityService
   | ThemeService
   | UpdateService
+  | CanvasService
 
 export const appRuntime = ManagedRuntime.make(AppLiveLayer)

@@ -13,10 +13,14 @@
     "typecheck": "tsc --noEmit",
     "check:effect": "effect-tsgo diagnostics --project tsconfig.json",
     "test": "bun test",
+    "mcp": "bun src/mcp-main.ts",
+    "mcp:dev": "bun --hot src/mcp-main.ts",
     "bump": "bun scripts/bump-version.ts",
     "postinstall": "effect-tsgo patch"
   },
   "dependencies": {
+    "@effect/platform": "^0.97.2",
+    "@effect/platform-node": "^4.0.4",
     "@gpuix/native": "0.10.0",
     "@gpuix/react": "0.10.0",
     "effect": "^4.0.4",
