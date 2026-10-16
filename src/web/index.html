@@ -74,8 +74,7 @@
 <button id="updates-button" class="quiet" aria-label="App updates">
 </button>
 <div class="version-row">
-<span id="app-version">
-</span>
+<button id="version-check" class="quiet" aria-label="Check for updates" title="Check for updates"><span id="app-version"></span></button>
 <span title="Select V · Hand H · Draw A · Fit Shift 1">Shortcuts &nbsp; ?</span>
 </div>
 <div class="storage-status">
@@ -138,20 +137,20 @@
 <button id="tool-new" class="tool" title="New canvas" aria-label="New blank canvas">+</button>
 <button id="tool-agent" class="tool" title="Create with your agent" aria-label="Create with your agent">✧</button>
 </nav>
-  <div id="canvas-hint">Space to pan <span>·</span> ⌘ scroll to zoom <span>·</span> Shift 1 to fit</div>
+  <div id="canvas-hint">Space to pan <span>·</span> ⌘ scroll to zoom <span>·</span> Shift 1 all <span>·</span> Shift 2 selected</div>
   <div id="zoom-controls" class="floating">
 <button id="zoom-out" class="icon-button" aria-label="Zoom out">−</button>
 <button id="zoom-value" title="Reset to 100%">100%</button>
 <button id="zoom-in" class="icon-button" aria-label="Zoom in">+</button>
 <span class="separator">
 </span>
-<button id="zoom-fit" class="icon-button" aria-label="Fit all canvases" title="Fit all · Shift 1">
-</button>
+<button id="zoom-fit" class="quiet" aria-label="Fit all canvases" title="Fit all · Shift 1">All canvases</button>
 </div>
   <div id="selection-bar" class="floating" hidden>
 <span id="selected-name">
 </span>
-<button id="edit-board" class="quiet">Edit HTML</button>
+<button id="focus-board" class="quiet" title="Fit selected canvas · Shift 2">Fit selected</button>
+<button id="edit-design" class="quiet">Edit design</button>
 <button id="preview-board" class="icon-button" title="Preview" aria-label="Preview canvas">
 </button>
 <button id="duplicate-board" class="icon-button" title="Duplicate · ⌘ D" aria-label="Duplicate canvas">
@@ -213,12 +212,12 @@
 </div>
 </section>
 <section class="inspector-section">
-<h3>HTML & CSS <span>Saved</span>
-</h3>
+<details><summary>Advanced · HTML &amp; CSS</summary>
 <pre id="source-snippet">
 </pre>
 <button id="inspector-edit" class="quiet outlined full">⌘ Edit source</button>
-<p>Your design is real HTML. Open the source to make a precise edit.</p>
+<button id="edit-board" class="quiet full">Open HTML editor</button>
+<p>Advanced source editing for developers.</p></details>
 </section>
 <section class="inspector-section">
 <h3>Create a variation</h3>
@@ -227,6 +226,14 @@
 </section>
 </div>
 <div class="inspector-footnote">✓ &nbsp; Isolated previews · Standalone HTML exports</div>
+</aside>
+  <aside id="element-inspector" class="inspector" aria-label="Element properties" hidden>
+<div class="inspector-heading"><strong id="element-canvas-name">Edit design</strong><button id="element-done" class="quiet" title="Back to canvas controls">Done</button></div>
+<div id="element-inspector-scroll" class="element-inspector-scroll">
+<div class="inspector-section"><span class="eyebrow">EDIT DESIGN</span><h2 id="element-selected">Pick an element</h2><p id="element-pick-hint">Click an element to select it. Double-click text to type directly on the canvas.</p><button id="element-parent" class="quiet outlined full">Select parent container ↑</button></div>
+<div id="element-properties" hidden><label id="element-text-field" class="inspector-section"><span>Text content</span><textarea id="element-text" aria-label="Text content" rows="4" maxlength="20000"></textarea></label><datalist id="element-font-families"><option value="system-ui"><option value="Arial"><option value="Helvetica"><option value="Georgia"><option value="Times New Roman"><option value="sans-serif"><option value="serif"><option value="monospace"></datalist><div id="element-styles"></div></div>
+</div>
+<div class="element-editor-footer"><p id="element-error" role="alert" hidden></p><span id="element-draft-state" role="status">All changes saved</span><div><button id="element-discard" class="quiet">Discard</button><button id="element-save" class="primary">Save design</button></div><small>◈ Pick a shared token to keep this value linked.</small></div>
 </aside>
   <aside id="token-inspector" class="inspector" aria-label="Token properties" hidden>
 <form id="token-form" hidden>

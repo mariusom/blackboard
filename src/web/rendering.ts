@@ -3,6 +3,8 @@ import { previewDocument } from '../workspace/model';
 import { tokenReferences } from '../workspace/tokens';
 import { canvasRow, emptyLibraryMessage, visibleCanvases } from './library';
 import { createDOMPreview } from './preview';
+import { editableDocument } from './elementDocument';
+import { renderElementInspector } from './elementEditing';
 import { app, currentTokens, selected, source, tokensKey, world, type BoardView } from './appState';
 import { element } from './dom';
 
@@ -43,7 +45,7 @@ function createBoardView(board: Board): BoardView {
   const surface = node.querySelector<HTMLElement>('.board-surface');
   if (!surface) throw new Error('Missing canvas preview surface');
   world.append(node);
-  const view: BoardView = { node, preview: createDOMPreview(surface), html: '', tokensRevision: '' };
+  const view: BoardView = { node, preview: createDOMPreview(surface), html: '', tokensRevision: '', editing: false };
   app.views.set(board.id, view);
   return view;
 }
@@ -61,9 +63,29 @@ function decorateBoardView(view: BoardView, board: Board, index: number) {
 }
 
 function renderBoardPreview(view: BoardView, board: Board) {
-  const content = app.editor?.id === board.id && app.editor.dirty ? source.value : board.html;
+  const editor = app.visualEditor?.board.id === board.id ? app.visualEditor : null;
+  if (view.editing !== Boolean(editor)) {
+    view.preview.dispose();
+    const surface = view.node.querySelector<HTMLElement>('.board-surface');
+    if (!surface) return;
+    view.preview = createDOMPreview(surface, {
+      interactive: Boolean(editor),
+      onFrame: (frame) => {
+        if (editor) {
+          editor.frame = frame.contentWindow;
+          editor.selection = undefined;
+        }
+      },
+    });
+    view.editing = Boolean(editor);
+    view.html = '';
+  }
+  const content = editor?.html ?? (app.editor?.id === board.id && app.editor.dirty ? source.value : board.html);
   if (view.html !== content || view.tokensRevision !== tokensKey()) {
-    view.preview.render(previewDocument(content, currentTokens()), board.name);
+    const html = editor
+      ? editableDocument(content, currentTokens(), editor.channel)
+      : previewDocument(content, currentTokens());
+    view.preview.render(html, board.name);
     view.html = content;
     view.tokensRevision = tokensKey();
   }
@@ -84,6 +106,7 @@ export function renderBoards() {
 export function renderSelection() {
   const board = selected();
   element('selection-bar').hidden = !board;
+  element('stage-heading').hidden = Boolean(board);
   element('selected-name').textContent = board?.name ?? '';
   for (const [id, view] of app.views) view.node.classList.toggle('selected', id === app.selectedId);
 }
@@ -166,7 +189,7 @@ export function renderLibrary(deps: RenderDeps) {
 }
 
 function renderInspectorPanels(board: Board | undefined) {
-  const editing = Boolean(app.editor);
+  const editing = Boolean(app.editor || app.visualEditor);
   document.body.classList.toggle('inspector-hidden', !app.editor && app.inspectorMode === null);
   element('canvas-inspector').hidden = editing || app.inspectorMode !== 'canvas';
   element('token-inspector').hidden = editing || app.inspectorMode !== 'token';
@@ -237,6 +260,7 @@ function renderUsedTokens(board: Board, selectToken: (name: string) => void) {
 export function renderInspector(deps: RenderDeps) {
   const board = selected();
   renderInspectorPanels(board);
+  renderElementInspector();
   renderAgentSummary();
   element('agent-target').textContent = board ? `Canvas: ${board.name}` : 'New canvases';
   if (!board) return;

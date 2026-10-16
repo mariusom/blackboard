@@ -63,6 +63,10 @@ function buildActions(deps: ActionDeps): Record<string, () => void> {
     'zoom-out': () => deps.setZoom(app.camera.zoom * 0.8),
     'zoom-value': () => deps.setZoom(1),
     'zoom-fit': () => deps.fit(),
+    'focus-board': () => {
+      const board = selected();
+      if (board) deps.fit([board]);
+    },
     'edit-board': deps.openEditor,
     'close-editor': () => {
       deps.closeEditor();
@@ -98,6 +102,7 @@ function buildActions(deps: ActionDeps): Record<string, () => void> {
         element('agent-handoff-state').classList.add('copied');
         toast('Prompt copied. Ready for your connected agent.');
       }),
+    'version-check': () => element('updates-button').click(),
     'updates-button': () => {
       element<HTMLDialogElement>('update-dialog').showModal();
       if (app.state && ['idle', 'up-to-date', 'error'].includes(app.state.update.status)) deps.checkUpdates();
@@ -109,6 +114,7 @@ function buildActions(deps: ActionDeps): Record<string, () => void> {
 export function wireActions(deps: ActionDeps) {
   for (const [id, action] of Object.entries(buildActions(deps))) element(id).addEventListener('click', action);
   wirePreviewDialog();
+  wireLibraryTabs(deps.activateLibrary);
   element('canvas-search').addEventListener('input', deps.renderLibrary);
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-starter]'))
     button.addEventListener('click', () =>
@@ -149,4 +155,19 @@ export function wireActions(deps: ActionDeps) {
       await deps.refresh();
     }),
   );
+}
+
+function wireLibraryTabs(activate: (tab: LibraryTab) => void) {
+  const tabs = ['canvases', 'tokens'] as const;
+  for (const tab of tabs) {
+    const button = element(`${tab}-button`);
+    button.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const next =
+        event.key === 'Home' ? 'canvases' : event.key === 'End' ? 'tokens' : tab === 'canvases' ? 'tokens' : 'canvases';
+      activate(next);
+      element(`${next}-button`).focus();
+    });
+  }
 }

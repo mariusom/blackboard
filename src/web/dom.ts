@@ -8,6 +8,8 @@ export const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 
 export const icons = {
+  undo: '<path d="M9 5 4 10l5 5M4 10h9a7 7 0 0 1 7 7"/>',
+  redo: '<path d="m15 5 5 5-5 5m5-5h-9a7 7 0 0 0-7 7"/>',
   select: '<path d="m5 3 13 9-7 1-3 6z"/>',
   hand: '<path d="M8 11V5a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-3a1.5 1.5 0 0 1 3 0v5c0 5-3 7-7 7-3 0-5-2-7-5l-3-4c-1-2 1-3 2-2l3 3"/>',
   frame: '<path d="M7 2v20M17 2v20M2 7h20M2 17h20"/>',
@@ -26,7 +28,8 @@ export const icon = (value: string) =>
 export function applyIcons() {
   for (const [id, value] of Object.entries({
     'updates-button': icons.update,
-    'zoom-fit': icons.fit,
+    'undo-button': icons.undo,
+    'redo-button': icons.redo,
     'preview-board': icons.preview,
     'duplicate-board': icons.duplicate,
     'export-board': icons.export,

@@ -12,7 +12,7 @@ const textAssets: Plugin = {
   transform(code, id) {
     if (!id.endsWith('.ts') || !code.includes('type:') || !code.includes('import')) return null;
     const rewritten = code.replace(
-      /import\s+(\w+)\s+from\s+(["'])([^"']+\.(?:html|css))\2[ \t]*with[ \t]*\{[ \t]*type:[ \t]*["']text["'][ \t]*\}/g,
+      /import\s+(\w+)\s+from\s+(["'])([^"']+\.(?:html|css|js))\2[ \t]*with[ \t]*\{[ \t]*type:[ \t]*["']text["'][ \t]*\}/g,
       'import $1 from $2$3?raw$2',
     );
     return rewritten === code ? null : { code: rewritten, map: null };

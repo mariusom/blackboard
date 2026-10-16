@@ -72,3 +72,5 @@ export function describeUpdate(info: UpdateInfo, preview: boolean): UpdateView {
     steps,
   };
 }
+
+export const showUpdateNotice = (info: UpdateInfo): boolean => info.hasUpdate || info.status === 'error';

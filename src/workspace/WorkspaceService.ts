@@ -9,6 +9,7 @@ import {
   Workspace,
   WorkspaceError,
   type LegacyWorkspace,
+  nextBoardPosition,
 } from './model';
 import { EMPTY_WORKSPACE, LEGACY_STUDIO_HTML, STUDIO_HTML } from './templates';
 import {
@@ -232,11 +233,12 @@ const createBoard = (ctx: WorkspaceContext) =>
     const id = value.id ?? crypto.randomUUID();
     if (current.boards.some((b) => b.id === id))
       return yield* new WorkspaceError({ code: 'conflict', message: 'A canvas with this ID already exists.' });
+    const position = nextBoardPosition(current.boards, { width: value.width ?? 760, height: value.height ?? 560 });
     const board: Board = {
       ...value,
       id,
-      x: value.x ?? current.boards.reduce((right, b) => Math.max(right, b.x + b.width + 80), 0),
-      y: value.y ?? 0,
+      x: value.x ?? position.x,
+      y: value.y ?? position.y,
       width: value.width ?? 760,
       height: value.height ?? 560,
       revision: (ctx.revisions.get(id) ?? -1) + 1,

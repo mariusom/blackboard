@@ -20,6 +20,7 @@ interface RequestContext {
   readonly runtime: ServerRuntime;
   readonly token: string;
   readonly page: string;
+  readonly editorNonce: string;
   readonly script: string;
   readonly preview: UpdatePreview | undefined;
   readonly subscribers: Set<Subscriber>;
@@ -113,14 +114,13 @@ const signIn = (token: string) =>
     },
   });
 
-const pageResponse = (page: string) =>
+const pageResponse = (page: string, nonce: string) =>
   new Response(page, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy':
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
     },
   });
 
@@ -167,7 +167,7 @@ const openEventStream = (ctx: RequestContext) => {
 };
 
 const handleGet = async (url: URL, ctx: RequestContext): Promise<Response | undefined> => {
-  if (url.pathname === '/') return pageResponse(ctx.page);
+  if (url.pathname === '/') return pageResponse(ctx.page, ctx.editorNonce);
   if (url.pathname === '/client.js')
     return new Response(ctx.script, { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } });
   if (url.pathname === '/style.css')
@@ -318,7 +318,8 @@ export async function startWorkspaceServer(
 ) {
   // Bun's HTML type declaration describes its bundler entrypoint; this import
   // explicitly uses the text loader. Check that boundary before serving it.
-  const page = typeof html === 'string' ? html : null;
+  const embeddedPage: unknown = html;
+  const page = typeof embeddedPage === 'string' ? embeddedPage : null;
   if (page === null) throw new Error('The workspace document was not embedded as text.');
   const preview = options.previewUpdates ? await Effect.runPromise(makeUpdatePreview) : undefined;
   const runtime: ServerRuntime = ManagedRuntime.make(
@@ -329,10 +330,12 @@ export async function startWorkspaceServer(
   );
   // Acquire storage before opening a window. Invalid files are preserved.
   await runtime.runPromise(Effect.flatMap(WorkspaceService, (service) => service.get));
+  const editorNonce = crypto.randomUUID().replaceAll('-', '');
   const ctx: RequestContext = {
     runtime,
     token: crypto.randomUUID() + crypto.randomUUID(),
-    page,
+    page: page.replace('</head>', `<meta name="blackboard-editor-nonce" content="${editorNonce}"></head>`),
+    editorNonce,
     script: await buildClientScript(),
     preview,
     subscribers: new Set(),

@@ -54,10 +54,15 @@ export function createPreviewRenderer(makeFrame: () => PreviewFrame) {
   };
 }
 
-export function createDOMPreview(surface: HTMLElement) {
+export interface DOMPreviewOptions {
+  readonly interactive?: boolean;
+  readonly onFrame?: (frame: HTMLIFrameElement) => void;
+}
+export function createDOMPreview(surface: HTMLElement, options: DOMPreviewOptions = {}) {
   return createPreviewRenderer(() => {
     const iframe = document.createElement('iframe');
-    iframe.setAttribute('sandbox', '');
+    iframe.setAttribute('sandbox', options.interactive ? 'allow-scripts' : '');
+    if (options.interactive) iframe.classList.add('visual-edit-frame');
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     iframe.setAttribute('tabindex', '-1');
     return {
@@ -74,6 +79,7 @@ export function createDOMPreview(surface: HTMLElement) {
       mount: (covered) => {
         iframe.style.zIndex = covered ? '0' : '1';
         surface.append(iframe);
+        options.onFrame?.(iframe);
       },
       afterPaint: (painted) => {
         requestAnimationFrame(() => requestAnimationFrame(painted));

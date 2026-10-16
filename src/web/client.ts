@@ -16,12 +16,14 @@ import {
 } from './appState';
 import { applyIcons, element, toast } from './dom';
 import { fit, setZoom } from './camera';
+import { assertHistorySafe } from './history';
 import { renderBoards, renderInspector, renderLibrary, renderSaveState, renderSelection } from './rendering';
 import { createUpdatePanel } from './updatePanel';
 import { createInteractions } from './interactions';
 import { renderPreview, showPreview } from './canvasPreview';
 import { wireActions } from './actionWiring';
 import { startApp } from './bootstrap';
+import { createElementEditor } from './elementEditing';
 
 declare global {
   interface Window {
@@ -72,6 +74,7 @@ async function refresh() {
 }
 
 function select(id: string | null): boolean {
+  if (id !== app.selectedId && app.visualEditor && !visualEditor.close()) return false;
   if (id !== app.selectedId && app.editor?.dirty && !window.confirm('Discard your unsaved HTML draft?')) return false;
   if (id !== app.selectedId && app.editor) closeEditor(true);
   app.selectedId = id;
@@ -94,6 +97,7 @@ function loadEditor(board: Board) {
 }
 
 function openEditor() {
+  if (app.visualEditor && !visualEditor.close()) return;
   const board = selected();
   if (!board) return;
   if (app.editor?.id !== board.id) loadEditor(board);
@@ -194,12 +198,7 @@ async function saveSource() {
 
 async function createBoard(input?: { x: number; y: number; width: number; height: number }) {
   if (!select(null)) return;
-  const bounds = input ?? {
-    x: (viewport.clientWidth / 2 - app.camera.x) / app.camera.zoom - 380,
-    y: (viewport.clientHeight / 2 - app.camera.y) / app.camera.zoom - 280,
-    width: 760,
-    height: 560,
-  };
+  const bounds = input ?? { width: 760, height: 560 };
   const board = Schema.decodeUnknownSync(Board)(
     await api('boards', {
       name: `Untitled canvas ${(app.state?.workspace.boards.length ?? 0) + 1}`,
@@ -219,12 +218,17 @@ async function duplicateBoard() {
   if (!before || !select(null)) return;
   const { id, revision, ...fields } = before;
   const board = Schema.decodeUnknownSync(Board)(
-    await api('boards', { ...fields, name: `${fields.name.slice(0, 112)} copy`, x: fields.x + fields.width + 64 }),
+    await api('boards', {
+      html: fields.html,
+      width: fields.width,
+      height: fields.height,
+      name: `${fields.name.slice(0, 112)} copy`,
+    }),
   );
   remember(null, board);
   await refresh();
   select(board.id);
-  fit();
+  fit([board]);
 }
 
 async function deleteBoard() {
@@ -234,16 +238,6 @@ async function deleteBoard() {
   remember(before, null);
   await refresh();
   toast('Canvas deleted · ⌘ Z to undo');
-}
-
-function assertHistorySafe(entry: HistoryEntry, redo: boolean) {
-  const existing = app.state?.workspace.boards.find((board) => board.id === entry.id);
-  const expected = redo ? entry.before : entry.after;
-  if (!existing || !expected) return;
-  const { id: existingId, revision: existingRevision, ...currentFields } = existing;
-  const { id: expectedId, revision: expectedRevision, ...expectedFields } = expected;
-  if (JSON.stringify(currentFields) !== JSON.stringify(expectedFields))
-    throw new Error('This canvas changed elsewhere. Undo is paused to preserve those changes.');
 }
 
 async function applyHistory(entry: HistoryEntry, desired: Board | null) {
@@ -264,12 +258,16 @@ async function applyHistory(entry: HistoryEntry, desired: Board | null) {
 }
 
 async function historyStep(redo = false) {
-  if (app.editor?.dirty) return;
+  if (app.editor?.dirty || app.visualEditor?.dirty) return;
+  if (app.visualEditor && !visualEditor.close()) return;
   const from = redo ? app.redoStack : app.undoStack;
   const to = redo ? app.undoStack : app.redoStack;
   const entry = from.at(-1);
   if (!entry) return;
-  assertHistorySafe(entry, redo);
+  assertHistorySafe(
+    app.state?.workspace.boards.find((board) => board.id === entry.id),
+    redo ? entry.before : entry.after,
+  );
   const desired = redo ? entry.after : entry.before;
   await applyHistory(entry, desired);
   from.pop();
@@ -330,6 +328,7 @@ function activateLibrary(tab: LibraryTab) {
 }
 
 function activateInspector(mode: InspectorMode) {
+  if (app.visualEditor && !visualEditor.close()) return false;
   if (app.editor && !closeEditor()) return false;
   app.inspectorMode = mode;
   renderInspector(renderDeps);
@@ -453,7 +452,24 @@ const tokenPanel = createTokenPanel({
 });
 
 window.blackboardHasUnsavedChanges = () =>
-  Boolean(app.editor?.dirty || tokenPanel.hasUnsavedChanges() || app.pendingWrites);
+  Boolean(app.editor?.dirty || app.visualEditor?.dirty || tokenPanel.hasUnsavedChanges() || app.pendingWrites);
+
+const visualEditor = createElementEditor({
+  updateBoard,
+  render: () => {
+    renderBoards();
+    renderInspector(renderDeps);
+  },
+});
+function openVisualEditor() {
+  if (app.editor && !closeEditor()) return;
+  const board = selected();
+  if (board) {
+    visualEditor.open(board);
+    fit([board]);
+  }
+}
+element('edit-design').addEventListener('click', openVisualEditor);
 
 const renderDeps = { select, fit, selectToken: (name: string) => tokenPanel.selectToken(name) };
 const updatePanel = createUpdatePanel({ request: api, refresh, perform, notify: toast });
@@ -464,8 +480,8 @@ createInteractions({
   fit,
   setZoom,
   setTool,
-  openEditor,
-  closeEditor,
+  openEditor: openVisualEditor,
+  closeEditor: () => (app.visualEditor ? visualEditor.close() : closeEditor()),
   createBoard,
   updateBoard,
   duplicateBoard,

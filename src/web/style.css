@@ -1985,3 +1985,41 @@ dialog small {
 .preview-surface {
   background:white
 }
+
+#zoom-fit { font-size:11px; white-space:nowrap; padding:0 10px }
+#focus-board { white-space:nowrap; color:var(--accent) }
+
+.board-surface iframe.visual-edit-frame { pointer-events:auto; cursor:crosshair }
+#element-inspector { z-index:17 }
+.element-inspector-scroll { overflow:auto; flex:1; min-height:0 }
+#element-selected { font-size:15px; margin:10px 0; overflow-wrap:anywhere }
+ .element-style-group { padding:14px 16px; border-top:1px solid var(--line) }
+.element-style-group summary { cursor:pointer; font-size:11px; font-weight:600; margin-bottom:12px }
+.element-control-grid { display:grid; gap:8px }
+.element-control { display:grid; grid-template-columns:76px minmax(0,1fr); align-items:center; gap:8px; min-height:30px; font-size:10px; color:var(--muted) }
+.element-control-value { display:flex; align-items:center; min-width:0; gap:4px; background:#f2f3ef; border:1px solid transparent; border-radius:5px; padding:0 5px; height:30px }
+.element-control-value:focus-within { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
+.element-control-value input:not([type=color]),.element-control-value>select { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--ink); font:11px -apple-system,BlinkMacSystemFont,sans-serif; padding:5px 0; box-shadow:none }
+.element-control-value input[type=color] { appearance:none; width:20px; height:20px; padding:0; border:0; border-radius:4px; background:transparent; flex-shrink:0; cursor:pointer }
+.element-control-value input[type=color]::-webkit-color-swatch-wrapper { padding:0 }
+.element-control-value input[type=color]::-webkit-color-swatch { border:1px solid #0001; border-radius:4px }
+.element-control-value small { font-size:9px; color:#969c8e }
+.element-control-value .token-bound { color:var(--accent)!important; font-size:10px!important; text-overflow:ellipsis }
+.element-token-menu { position:relative; flex:0 0 20px; height:24px; display:grid; place-items:center; color:#a1a69a; font-size:14px; cursor:pointer }
+.element-token-menu.bound { color:var(--accent) }
+.element-token-menu select { opacity:0; position:absolute; inset:0; width:100%; height:100%; cursor:pointer }
+.element-token-menu:focus-within { outline:1px solid var(--accent); border-radius:3px }
+#element-text { width:100%; min-width:0; padding:9px; border:1px solid var(--line); border-radius:5px; background:#f2f3ef; color:var(--ink); font:12px -apple-system,BlinkMacSystemFont,sans-serif }
+#element-text-field { display:block }
+#element-text { margin-top:8px; resize:vertical; user-select:text; font-size:12px }
+.element-editor-footer { padding:16px; border-top:1px solid var(--line); background:var(--paper); font-size:11px }
+.element-editor-footer>div { display:flex; justify-content:flex-end; gap:8px; margin:10px 0 }
+.element-editor-footer small { color:var(--muted); line-height:1.5 }
+.element-editor-footer [role=alert] { color:#a33; line-height:1.5 }
+
+#version-check { padding:0; font-size:10px; color:var(--muted) }
+#element-inspector .inspector-section { padding:14px 16px }
+#element-inspector .eyebrow { display:none }
+#element-inspector #element-selected { font-size:12px; margin:0 0 10px }
+#element-parent { font-size:10px; padding:6px }
+.element-editor-footer { padding:12px 16px }

@@ -177,6 +177,15 @@ function zoomShortcut(event: KeyboardEvent, deps: InteractionDeps) {
   return true;
 }
 
+function fitShortcut(event: KeyboardEvent, deps: InteractionDeps) {
+  if (!event.shiftKey || !['Digit1', 'Digit2'].includes(event.code)) return false;
+  event.preventDefault();
+  const board = selected();
+  if (event.code === 'Digit1') deps.fit();
+  else if (board) deps.fit([board]);
+  return true;
+}
+
 function handleCommandShortcut(event: KeyboardEvent, command: boolean, deps: InteractionDeps) {
   const key = event.key.toLowerCase();
   if (event.code === 'Space') return pressSpace(event);
@@ -184,15 +193,13 @@ function handleCommandShortcut(event: KeyboardEvent, command: boolean, deps: Int
   if (command && key === 'z') return runShortcut(event, () => deps.historyStep(event.shiftKey), deps);
   if (event.key === 'Backspace' || event.key === 'Delete') return runShortcut(event, deps.deleteBoard, deps);
   if (event.key === 'Escape') return escapeShortcut(deps);
-  if (event.shiftKey && event.code === 'Digit1') {
-    deps.fit();
-    return true;
-  }
+  if (fitShortcut(event, deps)) return true;
   if (command && ['+', '=', '-', '0'].includes(event.key)) return zoomShortcut(event, deps);
   return command ? false : handleToolShortcut(event, deps);
 }
 
 function handleKeydown(event: KeyboardEvent, deps: InteractionDeps) {
+  if (document.querySelector('dialog[open]')) return;
   const command = event.metaKey || event.ctrlKey;
   if (command && event.key.toLowerCase() === 'k') {
     event.preventDefault();

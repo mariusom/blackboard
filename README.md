@@ -7,10 +7,11 @@ The workspace uses the system WebKit renderer inside a native macOS window, with
 ## Working on the canvas
 
 - Fresh workspaces open empty. Choose **Website** or **App screen** for a guided agent prompt, create a blank canvas with **New canvas**, or draw one with the frame tool (**A**).
-- Find and select canvases in the **Canvases** tab (**⌘ K** to search). Drag canvases to arrange them and the bottom-right handle to resize. Edit names, positions, dimensions, and size presets in the right inspector.
+- Find and select canvases in the **Canvases** tab (**⌘ K** to search). New and duplicated canvases appear beside the last canvas with an 80 px gap, skipping occupied space and wrapping below when needed. Drag canvases to arrange them and the bottom-right handle to resize. Edit names, positions, dimensions, and size presets in the right inspector.
 - Scroll to pan. Hold **Space** or use **H** for the hand tool; **V** returns to selection.
 - Use **⌘ scroll** to zoom around the pointer. **Shift 1** fits all canvases.
-- Double-click a canvas or choose **Edit HTML** for its name, dimensions, and source.
+- Double-click a canvas or choose **Edit design**, then click individual elements. Change text, colors, corners, typography, padding, and layout in the visual inspector. Double-click a text element to type directly on the canvas. Use the diamond menu beside a control to bind a compatible shared token. **Save design** commits your draft; **Discard** restores the saved design.
+- Use **Fit selected** (**Shift 2**) to focus, and **All canvases** (**Shift 1**) to return to the overview. Advanced HTML editing is tucked inside **Advanced · HTML & CSS** in canvas properties.
 - Source edits preview live. Choose **Save changes** or **⌘ Enter** to commit a draft.
 - **⌘ D** duplicates a canvas. Delete removes it. **⌘ Z / ⇧⌘ Z** undo and redo workspace changes.
 - Preview a canvas at its actual CSS dimensions, or export a standalone HTML file.
@@ -29,7 +30,7 @@ Use the **Tokens** library tab to create and edit workspace-wide colors, spacing
 
 Reference a token in canvas CSS with `var(--color-brand)` or copy its reference. Valid draft values preview across linked canvases before saving. **Save token** commits the change; **Discard** restores saved values. Drafts survive changing panels, and exports, agent handoffs, and restarts ask you to save or discard them first. Exports embed the saved token CSS.
 
-Canvas previews keep their current render visible until a replacement has loaded and reached paint, ignore stale loads during rapid edits, and debounce token typing. Incomplete values retain the last valid draft; unrelated token edits leave a canvas’s rendered document unchanged. Both workspace canvases and full-size previews retain the same opaque sandbox and script/network restrictions.
+Canvas previews keep their current render visible until a replacement has loaded and reached paint, ignore stale loads during rapid edits, and debounce token typing. Incomplete values retain the last valid draft; unrelated token edits leave a canvas’s rendered document unchanged. Both workspace canvases and full-size previews retain an opaque sandbox. Visual editing grants scripting only to a nonce-authorized inspection bridge; page-authored scripts, network access, forms, nested documents, and native bridge access remain blocked.
 
 Token names are stable lowercase CSS names. Values support hex colors, CSS lengths (`px`, `rem`, `em`, `%`), font families and weights, numbers, and aliases such as `var(--color-brand)`. Aliases must refer to a compatible type and cannot form a cycle. Tokens used by saved canvases or other tokens cannot be deleted until their references are replaced.
 
@@ -67,7 +68,7 @@ Available tools:
 
 Use `expectedRevision` when replacing HTML so concurrent changes produce a visible conflict. Only send fields you intend to change. Use the token library’s `revision` as `expectedRevision` when changing tokens. Agents should inspect and reuse shared values before generating HTML. The resources `canvas://blackboard/workspace` and `canvas://blackboard/tokens` expose the workspace and token library; the prompt `design-canvas-page` guides generation.
 
-Previews support HTML and CSS, with inline SVG, CSS artwork, and embedded data images/fonts. Generated documents run in sandboxed frames without scripts, network access, forms, or native bridge access. External images and fonts should be embedded. HTML export retains the source and includes the shared token definitions.
+Previews support HTML and CSS, with inline SVG, CSS artwork, and embedded data images/fonts. Generated documents run in opaque sandboxed frames without page-authored scripts, network access, forms, or native bridge access. Visual edits preserve HTML structure and store overrides on selected elements; saving requires the canvas revision to match, so concurrent agent edits remain protected. External images and fonts should be embedded. HTML export retains the source and includes the shared token definitions.
 
 The local app server binds only to `127.0.0.1`, requires an ephemeral session credential, checks request origins, and records connection details in a private `runtime.json` beside the workspace. MCP uses that connection file. Development tests can override its path with `BLACKBOARD_CONNECTION_FILE`.
 
@@ -117,3 +118,5 @@ Repository variable: `UPDATER_PUBLIC_KEY`.
 The updater verifies signed app archives against the public key embedded in the executable. The update button opens download/install progress, retries, manual DMG download, and restart-now/later actions. Drafts must be saved before restarting. Development builds, mounted DMGs, and translocated apps show manual installation instructions. Install the DMG in Applications before using automatic updates.
 
 Release artifacts include the notarized Apple Silicon DMG, signed/stapled app archive, updater signature, and SHA-256 checksums. No ad-hoc signing fallback is used for distribution.
+
+Update notices appear at the bottom of the library only when a new release is available or a check fails. Click the version label there to check manually.

@@ -1,3 +1,4 @@
+import type { ElementSelection } from './elementProtocol';
 import type { Board, Camera } from '../workspace/model';
 import type { WorkspaceState } from '../workspace/protocol';
 import type { DesignToken } from '../workspace/tokens';
@@ -24,6 +25,7 @@ export interface BoardView {
   node: HTMLElement;
   preview: ReturnType<typeof createDOMPreview>;
   html: string;
+  editing: boolean;
   tokensRevision: string;
 }
 export type Gesture =
@@ -39,7 +41,17 @@ export const source = element<HTMLTextAreaElement>('html-source');
 
 /** The workspace UI keeps its mutable state here so the rendering, preview,
  * interaction and update modules can share it without importing each other. */
+export interface VisualEditorState {
+  board: Board;
+  html: string;
+  channel: string;
+  frame: Window | null;
+  selection: ElementSelection | undefined;
+  dirty: boolean;
+  saving: boolean;
+}
 export const app = {
+  visualEditor: null as VisualEditorState | null,
   state: undefined as WorkspaceState | undefined,
   camera: { x: 80, y: 110, zoom: 0.8 } as Camera,
   selectedId: null as string | null,

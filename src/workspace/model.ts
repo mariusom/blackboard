@@ -110,10 +110,21 @@ export function fitBoards(boards: readonly Board[], width: number, height: numbe
   };
 }
 
+const escapeAttribute = (value: string) =>
+  value.replace(/[&"<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
+
 /** Boards never inherit the app's origin or scripting authority. This policy also
  * prevents remote fonts/images, forms, and nested documents from sending content. */
-export function previewDocument(html: string, tokens: readonly DesignToken[] = []): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}${tokensCSS(documentTokens(html, tokens))}</style></head><body>${html}</body></html>`;
+export function previewDocument(
+  html: string,
+  tokens: readonly DesignToken[] = [],
+  editor?: { readonly nonce: string; readonly script: string; readonly config: string },
+): string {
+  const scriptPolicy = editor ? `; script-src 'nonce-${escapeAttribute(editor.nonce)}'` : '';
+  const bridge = editor
+    ? `<script nonce="${escapeAttribute(editor.nonce)}" data-config="${escapeAttribute(editor.config)}">${editor.script.replace(/<\/script/gi, '<\\/script')}</script>`
+    : '';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-src 'none'${scriptPolicy}"><style>html,body{margin:0;min-height:100%;}*{box-sizing:border-box}body{font-family:system-ui,sans-serif}${tokensCSS(documentTokens(html, tokens))}</style>${bridge}</head><body>${html}</body></html>`;
 }
 
 export function exportDocument(html: string, title: string, tokens: readonly DesignToken[] = []): string {
@@ -122,4 +133,28 @@ export function exportDocument(html: string, title: string, tokens: readonly Des
     (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character,
   );
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeTitle}</title><style data-blackboard-tokens>${tokensCSS(tokens)}</style></head><body style="margin:0">${html}</body></html>`;
+}
+
+/** Automatic additions follow the last canvas, with room between neighboring frames. */
+export function nextBoardPosition(boards: readonly Board[], size = { width: 760, height: 560 }) {
+  const gap = 80;
+  const last = boards.at(-1);
+  let x = last ? last.x + last.width + gap : 0;
+  let y = last?.y ?? 0;
+  for (let attempt = 0; attempt <= boards.length; attempt++) {
+    if (x > 100_000 - size.width) {
+      x = Math.min(0, ...boards.map((board) => board.x));
+      y = Math.max(0, ...boards.map((board) => board.y + board.height + gap));
+    }
+    const collisions = boards.filter(
+      (board) =>
+        x < board.x + board.width + gap &&
+        x + size.width + gap > board.x &&
+        y < board.y + board.height + gap &&
+        y + size.height + gap > board.y,
+    );
+    if (!collisions.length) return { x, y };
+    x = Math.max(...collisions.map((board) => board.x + board.width + gap));
+  }
+  return { x: 0, y: Math.max(0, ...boards.map((board) => board.y + board.height + gap)) };
 }

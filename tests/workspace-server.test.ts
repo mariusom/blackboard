@@ -54,7 +54,12 @@ it('requires the local session and rejects cross-origin writes from a sandboxed 
     ).toBe(403);
     const page = await fetch(server.origin, { headers: { Cookie: cookie } });
     expect(page.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
-    expect(await page.text()).toContain('id="viewport"');
+    const document = await page.text();
+    expect(document).toContain('id="viewport"');
+    const nonce = /name="blackboard-editor-nonce" content="([a-f0-9]+)"/.exec(document)?.[1];
+    expect(nonce).toHaveLength(32);
+    expect(page.headers.get('Content-Security-Policy')).toContain(`script-src 'self' 'nonce-${nonce}'`);
+    expect(page.headers.get('Content-Security-Policy')).not.toContain("script-src 'unsafe-inline'");
   }));
 
 it("shares generated HTML between a separate MCP connection and the desktop's saved state", () =>

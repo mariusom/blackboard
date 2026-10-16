@@ -3,7 +3,7 @@ import type { Board } from '../src/workspace/model';
 import type { UpdateInfo } from '../src/domain/models';
 import { INITIAL_UPDATE_INFO } from '../src/domain/models';
 import { canvasRow, emptyLibraryMessage, visibleCanvases } from '../src/web/library';
-import { describeUpdate } from '../src/web/updateView';
+import { describeUpdate, showUpdateNotice } from '../src/web/updateView';
 
 const board = (over: Partial<Board> = {}): Board => ({
   id: 'a',
@@ -85,4 +85,12 @@ it('surfaces the update error message when one is present', () => {
     'Could not complete the update.',
   );
   expect(describeUpdate(info({ status: 'up-to-date' }), false).message).toContain('latest version');
+});
+
+it('keeps update notices quiet until there is an available update or a failure to act on', () => {
+  expect(showUpdateNotice(info())).toBe(false);
+  expect(showUpdateNotice(info({ status: 'up-to-date' }))).toBe(false);
+  expect(showUpdateNotice(info({ status: 'checking' }))).toBe(false);
+  expect(showUpdateNotice(info({ status: 'available', hasUpdate: true }))).toBe(true);
+  expect(showUpdateNotice(info({ status: 'error' }))).toBe(true);
 });

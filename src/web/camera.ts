@@ -1,11 +1,11 @@
 import type { Board } from '../workspace/model';
 import { fitBoards, zoomAt } from '../workspace/model';
-import { app, viewport } from './appState';
+import { app, viewport, world } from './appState';
 import { element } from './dom';
 
 export function renderCamera() {
   const { camera } = app;
-  viewport.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;
+  world.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;
   viewport.style.backgroundSize = `${20 * camera.zoom}px ${20 * camera.zoom}px`;
   viewport.style.backgroundPosition = `${camera.x}px ${camera.y}px`;
   element('zoom-value').textContent = `${Math.round(camera.zoom * 100)}%`;

@@ -1,7 +1,7 @@
 import type { UpdateInfo } from '../domain/models';
 import { app } from './appState';
 import { element, escapeHtml, icon, icons } from './dom';
-import { describeUpdate, type UpdateView } from './updateView';
+import { describeUpdate, showUpdateNotice, type UpdateView } from './updateView';
 
 export interface UpdatePanelDeps {
   readonly request: (path: string, body?: unknown) => Promise<unknown>;
@@ -16,7 +16,7 @@ const updateLabel = (info: UpdateInfo) =>
   info.hasUpdate
     ? info.status === 'ready-to-restart'
       ? 'Restart to update'
-      : 'Update available'
+      : 'New update available'
     : info.status === 'checking'
       ? 'Checking for updates…'
       : info.status === 'error'
@@ -82,6 +82,7 @@ export function createUpdatePanel(deps: UpdatePanelDeps) {
     const { update: info, updatePreview: preview } = state;
     const view = describeUpdate(info, preview);
     const button = element('updates-button');
+    button.hidden = !showUpdateNotice(info);
     button.classList.toggle('available', info.hasUpdate);
     button.innerHTML = `${icon(icons.update)}<span>${updateLabel(info)}</span>`;
     button.setAttribute(
