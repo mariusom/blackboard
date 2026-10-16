@@ -1,6 +1,8 @@
 // Trusted editor bridge. Page-authored scripts remain blocked by the nonce CSP.
 const config = JSON.parse(document.currentScript.dataset.config);
 const properties = config.properties;
+// These nodes belong to the preview shell, not the user's website.
+for (const node of document.head.children) node.dataset.blackboardPreview = config.channel;
 let selected = null;
 let overlay;
 let marker;
@@ -72,7 +74,8 @@ function declaredStyle(node, property) {
 }
 
 function serialize() {
-  const clone = document.body.cloneNode(true);
+  const clone = document.documentElement.cloneNode(true);
+  for (const node of clone.querySelectorAll(`[data-blackboard-preview="${config.channel}"]`)) node.remove();
   clone.querySelector(`[data-blackboard-editor="${config.channel}"]`)?.remove();
   const editing = clone.querySelector(`[data-blackboard-text-edit="${config.channel}"]`);
   if (editing) {
@@ -80,7 +83,7 @@ function serialize() {
     else editing.setAttribute('contenteditable', previousEditable);
     editing.removeAttribute('data-blackboard-text-edit');
   }
-  return clone.innerHTML;
+  return `<!doctype html>${clone.outerHTML}`;
 }
 
 function highlight(node) {
